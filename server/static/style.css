@@ -1,6 +1,7 @@
 :root {
   --bg: #0e1116; --panel: #171c24; --line: #262d38;
   --text: #e6edf3; --muted: #8b95a3;
+  --accent: #4aa8ff;   /* buttons, links — was undefined, so buttons rendered with no fill */
   --z0: #21c07a; --z1: #e6cc00; --z2: #ff8a1e; --z3: #ff4d4d;
 }
 * { box-sizing: border-box; }
