@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wall Vibration Meter</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Wall Vibration Meter</h1>
+    <span id="status" class="status">connecting…</span>
+  </header>
+
+  <main>
+    <section class="tiles">
+      <div class="tile" id="velTile">
+        <div class="value"><span id="vel">--</span><small>mm/s</small></div>
+        <div class="label">RMS velocity <span id="zone" class="badge">—</span></div>
+      </div>
+      <div class="tile">
+        <div class="value"><span id="freq">--</span><small>Hz</small></div>
+        <div class="label">Dominant frequency</div>
+      </div>
+      <div class="tile">
+        <div class="value"><span id="accel">--</span><small>mg</small></div>
+        <div class="label">RMS acceleration</div>
+      </div>
+      <div class="tile">
+        <div class="value"><span id="peak">--</span><small>g</small></div>
+        <div class="label">Peak acceleration</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Acceleration spectrum</h2>
+      <canvas id="spectrum" width="900" height="260"></canvas>
+    </section>
+
+    <section class="panel">
+      <h2>RMS velocity — last few minutes</h2>
+      <canvas id="history" width="900" height="200"></canvas>
+    </section>
+
+    <footer id="meta">—</footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

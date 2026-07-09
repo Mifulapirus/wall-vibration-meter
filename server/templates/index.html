@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wall Vibration — History</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Wall Vibration <span class="dim">history</span></h1>
+    <div class="controls">
+      <a class="link" href="/sleep">sleep view →</a>
+      <select id="device" title="Device"></select>
+      <select id="range" title="Time range">
+        <!-- Populated by app.js (populateRanges); kept here for no-JS fallback. -->
+        <option value="0.016666666666666666">1 min</option>
+        <option value="0.08333333333333333">5 min</option>
+        <option value="0.16666666666666666">10 min</option>
+        <option value="1">1 h</option>
+        <option value="6">6 h</option>
+        <option value="24" selected>24 h</option>
+        <option value="168">7 d</option>
+        <option value="720">30 d</option>
+      </select>
+      <span id="status" class="status">…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="tiles">
+      <div class="tile" id="velTile">
+        <div class="value"><span id="vel">--</span><small>mm/s</small></div>
+        <div class="label">Latest RMS velocity <span id="zone" class="badge">—</span></div>
+      </div>
+      <div class="tile" id="band1Tile">
+        <div class="value"><span id="band1">--</span><small>mg</small></div>
+        <div class="label">Low band <span id="band1Range" class="dim"></span></div>
+      </div>
+      <div class="tile" id="band2Tile">
+        <div class="value"><span id="band2">--</span><small>mg</small></div>
+        <div class="label">Compressor band <span id="band2Range" class="dim"></span></div>
+      </div>
+      <div class="tile">
+        <div class="value"><span id="freq">--</span><small>Hz</small></div>
+        <div class="label">Dominant frequency</div>
+      </div>
+      <div class="tile">
+        <div class="value"><span id="accel">--</span><small>mg</small></div>
+        <div class="label">RMS acceleration</div>
+      </div>
+      <div class="tile">
+        <div class="value"><span id="seen">--</span></div>
+        <div class="label">Last reading</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>RMS velocity over time</h2>
+      <canvas id="velChart" width="1000" height="260"></canvas>
+    </section>
+
+    <section class="panel">
+      <h2>AC vibration bands over time <span class="dim">(which units are running)</span></h2>
+      <canvas id="bandChart" width="1000" height="220"></canvas>
+      <div class="legend">
+        <span><i class="sw" style="background:#c77dff"></i> <span id="band1Legend">low band</span> — 4-pole / fans</span>
+        <span><i class="sw" style="background:#ff8a1e"></i> <span id="band2Legend">compressor band</span> — 2-pole</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Dominant frequency over time</h2>
+      <canvas id="freqChart" width="1000" height="220"></canvas>
+    </section>
+
+    <section class="panel">
+      <h2>Spectrogram <span class="dim">(frequency vs time, brighter = stronger)</span></h2>
+      <canvas id="spectro" width="1000" height="300"></canvas>
+    </section>
+
+    <footer id="meta">—</footer>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

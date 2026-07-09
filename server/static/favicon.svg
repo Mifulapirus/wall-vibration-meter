@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Wall Vibration Meter">
+  <defs>
+    <!-- Severity ring: green -> yellow -> orange -> red (dashboard zone colors) -->
+    <linearGradient id="sev" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0"    stop-color="#21c07a"/>
+      <stop offset="0.4"  stop-color="#e6cc00"/>
+      <stop offset="0.72" stop-color="#ff8a1e"/>
+      <stop offset="1"    stop-color="#ff4d4d"/>
+    </linearGradient>
+    <linearGradient id="ringstroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0"   stop-color="#21c07a"/>
+      <stop offset="0.5" stop-color="#ff8a1e"/>
+      <stop offset="1"   stop-color="#ff4d4d"/>
+    </linearGradient>
+  </defs>
+
+  <!-- App-tile background -->
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="#0e1116"/>
+
+  <!-- Round display / LED severity ring -->
+  <circle cx="32" cy="32" r="23" fill="none" stroke="url(#ringstroke)" stroke-width="4"/>
+  <circle cx="32" cy="32" r="18.5" fill="#171c24"/>
+
+  <!-- Radiating vibration waves (left + right of the meter) -->
+  <g fill="none" stroke="#8b95a3" stroke-width="2.4" stroke-linecap="round" opacity="0.9">
+    <path d="M13 24 A 12 12 0 0 0 13 40"/>
+    <path d="M51 24 A 12 12 0 0 1 51 40"/>
+  </g>
+
+  <!-- Live vibration / FFT waveform across the face -->
+  <path d="M18 32 L23 32 L26 22 L30 42 L34 25 L37 38 L41 32 L46 32"
+        fill="none" stroke="url(#sev)" stroke-width="3.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

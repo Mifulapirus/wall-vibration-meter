@@ -1,0 +1,21 @@
+services:
+  wallvibe:
+    build: .
+    image: wallvibe-history:latest
+    container_name: wallvibe
+    restart: unless-stopped
+    # Exposes a plain HTTP port for your existing Nginx to reverse-proxy
+    # wallvibe.thehomelab.dev -> here. Change the host port if 5006 is taken.
+    ports:
+      - "5006:5006"
+    volumes:
+      - ./data:/data
+    environment:
+      - PORT=5006
+      # Optional shared secret. If set, the device must send the same value in
+      # the X-Device-Token header. Leave empty for an open homelab endpoint.
+      - INGEST_TOKEN=${INGEST_TOKEN:-}
+      # Store at most one spectrum per device per this many seconds.
+      - SPECTRUM_MIN_INTERVAL_S=${SPECTRUM_MIN_INTERVAL_S:-30}
+      # Delete data older than N days (0 = keep forever).
+      - RETENTION_DAYS=${RETENTION_DAYS:-0}

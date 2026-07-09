@@ -1,0 +1,20 @@
+[Unit]
+Description=Wall Vibration Meter (Gunicorn)
+After=network.target
+
+[Service]
+User=angel
+Group=www-data
+WorkingDirectory=/srv/apps/wallvibe
+Environment=DB_PATH=/srv/apps/wallvibe/data/wallvibe.db
+Environment=PORT=5006
+Environment=SPECTRUM_MIN_INTERVAL_S=30
+Environment=RETENTION_DAYS=0
+# Optional shared secret; must match the firmware's HISTORY_TOKEN.
+# Environment=INGEST_TOKEN=changeme
+ExecStart=/srv/apps/wallvibe/.venv/bin/python -m gunicorn --workers 2 --threads 4 --bind 127.0.0.1:5006 --timeout 60 --max-requests 2000 app:app
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

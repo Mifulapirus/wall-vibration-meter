@@ -1,0 +1,66 @@
+:root {
+  --bg: #0e1116; --panel: #171c24; --line: #262d38;
+  --text: #e6edf3; --muted: #8b95a3;
+  --z0: #21c07a; --z1: #e6cc00; --z2: #ff8a1e; --z3: #ff4d4d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+.dim { color: var(--muted); font-weight: 400; }
+
+header { display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+.controls { display: flex; align-items: center; gap: 10px; }
+select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+.status { font-size: 13px; color: var(--muted); }
+.status.ok { color: var(--z0); } .status.err { color: var(--z3); }
+
+main { max-width: 1040px; margin: 0 auto; padding: 20px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+@media (max-width: 680px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px;
+  transition: border-color .3s, box-shadow .3s; }
+.tile .value { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; }
+.tile .value small { font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+.tile .label { margin-top: 6px; font-size: 13px; color: var(--muted); }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; color: #0e1116; margin-left: 6px; }
+.badge.z0 { background: var(--z0); } .badge.z1 { background: var(--z1); }
+.badge.z2 { background: var(--z2); } .badge.z3 { background: var(--z3); }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; margin-bottom: 20px; }
+.panel h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 12px;
+  text-transform: uppercase; letter-spacing: .5px; }
+canvas { width: 100%; height: auto; display: block; }
+footer { color: var(--muted); font-size: 12px; text-align: center; }
+
+/* --- sleep view --- */
+.link { color: var(--accent); text-decoration: none; font-size: 13px; }
+.link:hover { text-decoration: underline; }
+input[type="text"], input[type="number"], input[type="file"] {
+  background: #0e1116; color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 8px; font-size: 13px; }
+input[type="number"] { width: 52px; }
+button { background: var(--accent); color: #06121e; border: 0; border-radius: 8px;
+  padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+button:hover { filter: brightness(1.1); }
+.importrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.importrow .tz { font-size: 12px; color: var(--muted); }
+.hint { font-size: 12px; margin: 10px 0 0; }
+.controlsbar { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+.controlsbar label { font-size: 13px; color: var(--muted); }
+.paneltitle { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.paneltitle h2 { margin: 0; }
+.nav { display: flex; gap: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+.legend .sw.dash { height: 3px; border-radius: 0; }
+.statsrow { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.stat { background: #0e1116; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-width: 96px; }
+.stat .sv { font-size: 20px; font-weight: 700; }
+.stat .sl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.stat.z0 { border-color: #21c07a55; } .stat.z1 { border-color: #e6cc0055; }
+.stat.z2 { border-color: #ff8a1e77; } .stat.z3 { border-color: #ff4d4d; }

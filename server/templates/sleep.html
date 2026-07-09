@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sleep Environment — Wall Vibration</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Sleep Environment <span class="dim">noise + vibration</span></h1>
+    <div class="controls">
+      <a class="link" href="/">← live</a>
+      <span id="status" class="status">…</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Import panel -->
+    <section class="panel">
+      <h2>Import noise log (CSV or XLSX from your phone / meter)</h2>
+      <form id="importForm" class="importrow">
+        <input type="file" id="csv" accept=".csv,.xlsx,text/csv" required>
+        <input type="text" id="src" placeholder="label (e.g. bedroom)" value="bedroom">
+        <label class="tz">tz <input type="text" id="tz" size="18"></label>
+        <button type="submit">Import</button>
+        <span id="importResult" class="dim"></span>
+      </form>
+      <p class="hint dim">Most sound-meter apps export a CSV or XLSX with a time column
+        and a dB column (LAeq / avg, optionally max). A title/units row above the header
+        is fine. Columns are auto-detected; timestamps are read in the timezone above and
+        aligned to the vibration data.</p>
+    </section>
+
+    <!-- Controls -->
+    <section class="panel controlsbar">
+      <label>Vibration <select id="device"></select></label>
+      <label>Noise <select id="source"></select></label>
+      <label>Sleep window
+        <input type="number" id="nightStart" min="0" max="23" value="22"> :00 –
+        <input type="number" id="nightEnd" min="0" max="23" value="7"> :00
+      </label>
+    </section>
+
+    <!-- Combined night timeline -->
+    <section class="panel">
+      <div class="paneltitle">
+        <h2>Night timeline <span class="dim" id="nightLabel"></span></h2>
+        <div class="nav">
+          <button id="prevNight">‹ prev</button>
+          <button id="nextNight">next ›</button>
+        </div>
+      </div>
+      <canvas id="timeline" width="1000" height="320"></canvas>
+      <div class="legend">
+        <span><i class="sw" style="background:#35a9ff"></i> noise dB</span>
+        <span><i class="sw" style="background:#ff8a1e"></i> vibration mm/s</span>
+        <span><i class="sw dash" style="background:#ff4d4d"></i> WHO 45 dB (awakenings)</span>
+        <span><i class="sw dash" style="background:#e6cc00"></i> WHO 30 dB (sleep)</span>
+      </div>
+      <div id="nightStats" class="statsrow"></div>
+    </section>
+
+    <!-- Multi-night heatmap -->
+    <section class="panel">
+      <div class="paneltitle">
+        <h2>Every night <span class="dim">— peak level per 15-min block</span></h2>
+        <div class="nav">
+          <select id="hmMetric">
+            <option value="noise" selected>noise (dB)</option>
+            <option value="vibration">vibration (mm/s)</option>
+          </select>
+          <select id="hmDays">
+            <option value="7" selected>7 nights</option>
+            <option value="14">14 nights</option>
+            <option value="30">30 nights</option>
+          </select>
+        </div>
+      </div>
+      <canvas id="heatmap" width="1000" height="360"></canvas>
+      <div class="legend" id="hmLegend"></div>
+    </section>
+
+    <footer id="meta" class="dim">—</footer>
+  </main>
+
+  <script src="/static/sleep.js"></script>
+</body>
+</html>
