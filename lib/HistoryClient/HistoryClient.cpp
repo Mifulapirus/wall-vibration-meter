@@ -30,6 +30,9 @@ bool HistoryClient::push(const VibeResult& r, unsigned long uptimeMs, bool inclu
     doc["uptime_ms"]     = uptimeMs;
     doc["vel_rms_mm_s"]  = r.velRmsMmS;
     doc["dom_freq_hz"]   = r.domFreqHz;
+    doc["dom_amp_ms2"]   = r.domAmpMs2;
+    doc["noise_floor_ms2"] = r.noiseFloorMs2;
+    doc["snr"]           = r.snr;
     doc["accel_rms_g"]   = r.accelRmsG;
     doc["accel_rms_ms2"] = r.accelRmsMs2;
     doc["peak_g"]        = r.accelPeakG;

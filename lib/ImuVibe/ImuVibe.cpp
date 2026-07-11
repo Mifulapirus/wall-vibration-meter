@@ -124,6 +124,19 @@ bool ImuVibe::readOnce(float& ax, float& ay, float& az) {
     return true;
 }
 
+bool ImuVibe::captureRawAxis(int16_t* buf, int count, int axis) {
+    if (!_ok) return false;
+    const uint32_t periodUs = (uint32_t)(1000000.0f / _sampleRate);
+    const uint32_t timeoutUs = periodUs * 4 + 2000;
+    for (int i = 0; i < count; i++) {
+        if (!waitDataReady(timeoutUs)) return false;
+        int16_t x, y, z;
+        if (!readRaw(x, y, z)) return false;
+        buf[i] = (axis == 0) ? x : (axis == 1) ? y : z;
+    }
+    return true;
+}
+
 bool ImuVibe::capture(float* ax, float* ay, float* az, int count) {
     if (!_ok) return false;
     // One data-ready period is 1/ODR; allow generous slack before timing out.

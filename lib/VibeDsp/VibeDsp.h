@@ -23,6 +23,8 @@ struct VibeResult {
     float band2HiHz   = 0;
     float domFreqHz   = 0;   // dominant frequency (Hz), sub-bin interpolated
     float domAmpMs2   = 0;   // acceleration amplitude at the dominant frequency (m/s^2)
+    float noiseFloorMs2 = 0; // median spectral noise floor (m/s^2) - sensor noise
+    float snr         = 0;   // dominant peak / noise floor - real-signal strength
     int   zone        = 0;   // 0 good / 1 fair / 2 high / 3 severe
 
     float fs     = 0;        // sample rate used (Hz)
@@ -47,7 +49,10 @@ private:
     float _window[FFT_SIZE];   // Hann window
     float _re[FFT_SIZE];       // FFT working buffers (reused per axis)
     float _im[FFT_SIZE];
-    float _power[FFT_SIZE / 2];// combined |X|^2 accumulated across axes
+    float _power[FFT_SIZE / 2];// combined |X|^2 this frame (summed over axes)
+    float _pavg[FFT_SIZE / 2]; // exponential average of _power across frames
+    float _accelAvg = 0;       // exponential average of accel RMS (g)
+    bool  _havg     = false;   // has the average been seeded yet?
 
     void  fft(float* re, float* im, int n);
     static int zoneFor(float velMmS);

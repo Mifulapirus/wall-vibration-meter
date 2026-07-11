@@ -4,12 +4,49 @@
 // WHO bedroom guidance (indoor):
 const DB_SLEEP = 30;   // LAeq for undisturbed sleep
 const DB_EVENT = 45;   // LAmax above which awakenings occur
-const VIB_PERC = 0.3;  // mm/s vibration perception threshold
-const VIB_HIGH = 3.0;  // our "severe" zone
+// AC-compressor vibration is tonal at 58-120 Hz; SNR (dominant peak vs noise
+// floor) tracks it honestly, unlike mm/s velocity which de-weights those
+// frequencies by ~1/f and badly under-represents what you feel/hear.
+const AC_SNR_ON  = 10;   // "audibly disruptive" threshold (noise-calibrated; matches dashboard)
+const AC_SNR_OFF = 7;    // hysteresis so a steady unit doesn't blink on/off
+const SNR_STRONG = 20;   // clearly strong coupling (heatmap color midpoint)
 
 const el = (id) => document.getElementById(id);
 const setStatus = (t, c) => { const s = el('status'); s.textContent = t; s.className = 'status ' + (c || ''); };
 const enc = encodeURIComponent;
+
+// Noise sources are plotted with app-wide consistent colours (matching /compare
+// and the dashboard). The vibration SNR trace is violet here so it doesn't clash
+// with DSL's orange on the shared timeline.
+const NOISE_COLORS = { TAS: '#35a9ff', DSL: '#ff8a1e', Average: '#21c07a' };
+const NOISE_FALLBACK = ['#4dd0e1', '#e879f9', '#ff6f91', '#9ccc65'];
+const VIB_COL = '#b98cff';
+let noiseColor = {};   // source -> css colour
+
+function selectedSources() {
+  const box = el('sources');
+  return box ? [...box.querySelectorAll('input:checked')].map(i => i.value) : [];
+}
+// The source whose stats/heatmap represent the night — the combined Average when
+// it's shown, else the first selected source.
+function primarySource() { const s = selectedSources(); return s.includes('Average') ? 'Average' : (s[0] || ''); }
+
+function renderSourcePicks(names) {
+  const box = el('sources');
+  const prev = selectedSources();
+  if (!names.length) { box.innerHTML = '<span class="dim">(none yet)</span>'; return; }
+  box.innerHTML = '';
+  names.forEach((n, i) => {
+    noiseColor[n] = NOISE_COLORS[n] || NOISE_FALLBACK[i % NOISE_FALLBACK.length];
+    const lab = document.createElement('label'); lab.className = 'srcpick';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = n;
+    cb.checked = prev.length ? prev.includes(n) : true;   // default: all on
+    cb.addEventListener('change', () => { drawTimeline(); drawHeatmap(); });
+    const sw = document.createElement('i'); sw.className = 'sw'; sw.style.background = noiseColor[n];
+    lab.append(cb, sw, document.createTextNode(n));
+    box.appendChild(lab);
+  });
+}
 
 let currentNight = null;   // Date at local midnight of the night-start date
 
@@ -21,7 +58,7 @@ async function boot() {
   el('importForm').addEventListener('submit', doImport);
   el('prevNight').addEventListener('click', () => { shiftNight(-1); });
   el('nextNight').addEventListener('click', () => { shiftNight(1); });
-  ['device', 'source'].forEach(id => el(id).addEventListener('change', drawTimeline));
+  el('device').addEventListener('change', () => { drawTimeline(); drawHeatmap(); });
   ['nightStart', 'nightEnd'].forEach(id => el(id).addEventListener('change', () => { drawTimeline(); drawHeatmap(); }));
   ['hmMetric', 'hmDays'].forEach(id => el(id).addEventListener('change', drawHeatmap));
 
@@ -58,7 +95,7 @@ async function loadSelectors() {
       fetch('/api/noise/sources').then(r => r.json()),
     ]);
     fillSelect('device', devs.map(d => d.device_id));
-    fillSelect('source', srcs.map(s => s.source));
+    renderSourcePicks(srcs.map(s => s.source));
   } catch (e) { setStatus('error — ' + e.message, 'err'); }
 }
 function fillSelect(id, values) {
@@ -89,7 +126,8 @@ async function doImport(ev) {
     el('importResult').textContent =
       `imported ${d.imported} rows (skipped ${d.skipped}) · ${d.columns.time} / ${d.columns.level}`;
     await loadSelectors();
-    el('source').value = d.source;
+    const cb = [...el('sources').querySelectorAll('input')].find(i => i.value === d.source);
+    if (cb) cb.checked = true;   // show the just-imported source
     drawTimeline(); drawHeatmap();
   } catch (e) {
     el('importResult').textContent = 'error: ' + e.message;
@@ -106,15 +144,23 @@ async function drawTimeline() {
     `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} → ` +
     `${end.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
 
-  const dev = el('device').value, src = el('source').value;
+  const dev = el('device').value;
+  const srcs = selectedSources();
   const q = `from=${enc(start.toISOString())}&to=${enc(end.toISOString())}`;
-  let noise = [], vib = [];
+  let noiseBySrc = {}, vib = [];
   try {
-    [noise, vib] = await Promise.all([
-      src ? fetch(`/api/noise?source=${enc(src)}&${q}`).then(r => r.json()) : [],
-      dev ? fetch(`/api/readings?device=${enc(dev)}&${q}&limit=4000`).then(r => r.json()) : [],
+    const [noiseArrs, vibArr] = await Promise.all([
+      Promise.all(srcs.map(s => fetch(`/api/noise?source=${enc(s)}&${q}`).then(r => r.json()).then(d => [s, d]))),
+      dev ? fetch(`/api/readings?device=${enc(dev)}&${q}&limit=4000`).then(r => r.json()) : Promise.resolve([]),
     ]);
+    noiseBySrc = Object.fromEntries(noiseArrs);
+    vib = vibArr;
   } catch (e) { setStatus('error — ' + e.message, 'err'); return; }
+  // Primary source drives the WHO shading + night stats: the combined Average
+  // when shown, else the first selected source.
+  const primary = srcs.includes('Average') ? 'Average' : srcs[0];
+  const noise = primary ? (noiseBySrc[primary] || []) : [];
+  const anyNoise = Object.values(noiseBySrc).some(a => a.length);
 
   const c = el('timeline'), ctx = clear(c), W = c.width, H = c.height;
   const padL = 46, padR = 48, padB = 26, padT = 12;
@@ -124,13 +170,33 @@ async function drawTimeline() {
   // night background
   ctx.fillStyle = '#0b0e18'; ctx.fillRect(padL, padT, W - padL - padR, H - padT - padB);
 
-  // dB (left) axis scale
-  let dbMax = 75; noise.forEach(n => dbMax = Math.max(dbMax, (n.lamax ?? n.spl_db ?? 0) + 4));
+  // "AC compressor running" shading (SNR hysteresis: on >=3, off <2.2) drawn
+  // behind everything, so a night shows at a glance WHEN the annoying tonal
+  // vibration was actually present.
+  if (vib.length) {
+    ctx.fillStyle = 'rgba(33,192,122,0.16)';
+    let spanStart = null, running = false;
+    const flushV = (x) => { if (spanStart != null) { ctx.fillRect(spanStart, padT, Math.max(1, x - spanStart), H - padT - padB); spanStart = null; } };
+    vib.forEach(r => {
+      const x = xOf(new Date(r.ts).getTime()), s = r.snr;
+      if (s != null) {
+        if (!running && s >= AC_SNR_ON) running = true;
+        else if (running && s < AC_SNR_OFF) running = false;
+      }
+      if (running) { if (spanStart == null) spanStart = x; } else flushV(x);
+    });
+    flushV(xOf(t1));
+  }
+
+  // dB (left) axis scale — fit to every shown source
+  let dbMax = 75;
+  Object.values(noiseBySrc).forEach(arr => arr.forEach(n => dbMax = Math.max(dbMax, (n.lamax ?? n.spl_db ?? 0) + 4)));
   const dbMin = 20;
   const yDb = (v) => (H - padB) - ((v - dbMin) / (dbMax - dbMin)) * (H - padT - padB);
-  // mm/s (right) axis scale
-  let vMax = VIB_HIGH + 0.4; vib.forEach(r => vMax = Math.max(vMax, (r.vel_rms_mm_s ?? 0) * 1.1));
-  const yV = (v) => (H - padB) - (v / vMax) * (H - padT - padB);
+  // SNR (right) axis scale — auto-scales to the night's peak, floor of 6x
+  let sMax = AC_SNR_ON * 2; vib.forEach(r => sMax = Math.max(sMax, r.snr ?? 0));
+  sMax = Math.ceil(sMax / 5) * 5;
+  const yS = (v) => (H - padB) - (Math.min(v, sMax) / sMax) * (H - padT - padB);
 
   // hour gridlines + labels
   ctx.strokeStyle = '#20283a'; ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui'; ctx.lineWidth = 1;
@@ -154,33 +220,144 @@ async function drawTimeline() {
   ctx.fillStyle = '#8b95a3';
   for (let v = dbMin; v <= dbMax; v += 10) ctx.fillText(v + '', 4, yDb(v) + 3);
   ctx.save(); ctx.fillStyle = '#35a9ff'; ctx.fillText('dB', 4, padT + 2); ctx.restore();
-  ctx.fillStyle = '#ff8a1e'; ctx.fillText('mm/s', W - padR + 6, padT + 2);
-  for (let i = 0; i <= 2; i++) { const v = vMax * i / 3; ctx.fillStyle = '#8b95a3'; ctx.fillText(v.toFixed(1), W - padR + 6, yV(v) + 3); }
+  ctx.fillStyle = VIB_COL; ctx.fillText('SNR', W - padR + 6, padT + 2);
+  for (let i = 0; i <= 3; i++) { const v = sMax * i / 3; ctx.fillStyle = '#8b95a3'; ctx.fillText(v.toFixed(0) + '×', W - padR + 6, yS(v) + 3); }
 
-  // noise: shade area above 45 dB, then draw line
+  // noise: shade the PRIMARY source's area above 45 dB (so a night's exceedances
+  // pop without every source shading over each other), then draw each source's
+  // dB line in its own colour.
   if (noise.length) {
     ctx.fillStyle = 'rgba(255,77,77,0.16)';
-    noise.forEach((n, i) => {
+    noise.forEach((n) => {
       const v = n.spl_db; if (v == null || v <= DB_EVENT) return;
       const x = xOf(new Date(n.ts).getTime());
       ctx.fillRect(x - 1, yDb(v), 2, yDb(DB_EVENT) - yDb(v));
     });
-    ctx.strokeStyle = '#35a9ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-    noise.forEach((n, i) => { const x = xOf(new Date(n.ts).getTime()), y = yDb(n.spl_db ?? dbMin); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
   }
-  // vibration line (right axis)
+  srcs.forEach(s => {
+    const arr = noiseBySrc[s]; if (!arr || !arr.length) return;
+    ctx.strokeStyle = noiseColor[s] || '#35a9ff'; ctx.lineWidth = s === 'Average' ? 2.1 : 1.4;
+    ctx.beginPath(); let started = false;
+    arr.forEach(n => {
+      if (n.spl_db == null) { started = false; return; }
+      const x = xOf(new Date(n.ts).getTime()), y = yDb(n.spl_db);
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true;
+    });
+    ctx.stroke();
+  });
+  // vibration = compressor SNR (right axis). The dashed line marks the "AC on"
+  // threshold; the trace breaks where a reading has no SNR.
   if (vib.length) {
-    ctx.strokeStyle = '#ff8a1e'; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.9; ctx.beginPath();
-    vib.forEach((r, i) => { const x = xOf(new Date(r.ts).getTime()), y = yV(r.vel_rms_mm_s ?? 0); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    const yThr = yS(AC_SNR_ON);
+    ctx.strokeStyle = 'rgba(33,192,122,0.55)'; ctx.setLineDash([4, 4]); ctx.beginPath();
+    ctx.moveTo(padL, yThr); ctx.lineTo(W - padR, yThr); ctx.stroke(); ctx.setLineDash([]);
+
+    ctx.strokeStyle = VIB_COL; ctx.lineWidth = 1.3; ctx.globalAlpha = 0.95; ctx.beginPath();
+    let started = false;
+    vib.forEach(r => {
+      if (r.snr == null) { started = false; return; }
+      const x = xOf(new Date(r.ts).getTime()), y = yS(r.snr);
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true;
+    });
     ctx.stroke(); ctx.globalAlpha = 1;
   }
-  if (!noise.length && !vib.length) {
+  if (!anyNoise && !vib.length) {
     ctx.fillStyle = '#8b95a3'; ctx.fillText('no data for this night — import a noise CSV or pick another night', padL + 8, H / 2);
   }
 
   el('nightStats').innerHTML = statTiles(noise, vib, start, end);
+  addFusionTiles(start, end, dev);
+  drawStrength(vib, start, end);
   setStatus('live', 'ok');
+}
+
+// Fused sound+vibration metrics for this night (server /api/fusion): the
+// compressor's dBA contribution and the C−A low-frequency indicator — things a
+// single sensor can't give. Appended to the night's stat tiles.
+async function addFusionTiles(start, end, dev) {
+  try {
+    const q = `from=${enc(start.toISOString())}&to=${enc(end.toISOString())}` +
+              `${dev ? `&device=${enc(dev)}` : ''}&asource=TAS&csource=DSL`;
+    const d = await fetch(`/api/fusion?${q}`).then(r => r.json());
+    const A = d.sound && d.sound.TAS, lf = d.lowfreq, comp = d.compressor;
+    const extra = [];
+    if (comp && comp.duty_pct != null)
+      extra.push(stat('AC duty', Math.round(comp.duty_pct) + '%', comp.duty_pct > 50 ? 'z3' : comp.duty_pct > 0 ? 'z1' : 'z0'));
+    if (A && A.delta_leq != null)
+      extra.push(stat('AC adds (A)', '+' + A.delta_leq.toFixed(1) + ' dB', A.delta_leq >= 6 ? 'z2' : 'z0'));
+    if (lf && lf.ca_median != null)   // both meters are dBC → this is a calibration/placement gap, not weighting
+      extra.push(stat('Meter gap', '±' + Math.round(lf.ca_median) + ' dB', lf.ca_median >= 15 ? 'z3' : lf.ca_median >= 8 ? 'z1' : 'z0'));
+    if (extra.length) el('nightStats').insertAdjacentHTML('beforeend', extra.join(''));
+  } catch (e) { /* fusion is best-effort; night tiles already rendered */ }
+}
+
+// Dominant-tone amplitude (mg) over the night — the physical strength of the
+// compressor vibration, on its own axis so the timeline stays readable. Shares
+// the night window and the same "compressor running" shading for alignment.
+const domMg = (r) => (r.dom_amp_ms2 != null ? r.dom_amp_ms2 / 9.80665 * 1000 : null);
+function drawStrength(vib, start, end) {
+  const c = el('strength'); if (!c) return;
+  const ctx = clear(c), W = c.width, H = c.height;
+  const padL = 46, padR = 48, padB = 26, padT = 12;
+  const t0 = start.getTime(), t1 = end.getTime();
+  const xOf = (t) => padL + ((t - t0) / (t1 - t0)) * (W - padL - padR);
+
+  ctx.fillStyle = '#0b0e18'; ctx.fillRect(padL, padT, W - padL - padR, H - padT - padB);
+
+  // same "AC running" shading (SNR hysteresis) so it lines up with the timeline
+  if (vib.length) {
+    ctx.fillStyle = 'rgba(33,192,122,0.16)';
+    let spanStart = null, running = false;
+    const flushV = (x) => { if (spanStart != null) { ctx.fillRect(spanStart, padT, Math.max(1, x - spanStart), H - padT - padB); spanStart = null; } };
+    vib.forEach(r => {
+      const x = xOf(new Date(r.ts).getTime()), s = r.snr;
+      if (s != null) { if (!running && s >= AC_SNR_ON) running = true; else if (running && s < AC_SNR_OFF) running = false; }
+      if (running) { if (spanStart == null) spanStart = x; } else flushV(x);
+    });
+    flushV(xOf(t1));
+  }
+
+  // mg axis — auto-scale to the night's peak, floor of 4 mg, round to even
+  let mMax = 4; vib.forEach(r => { const m = domMg(r); if (m != null) mMax = Math.max(mMax, m); });
+  mMax = Math.ceil(mMax / 2) * 2;
+  const yM = (v) => (H - padB) - (Math.min(v, mMax) / mMax) * (H - padT - padB);
+
+  // hour gridlines + labels
+  ctx.strokeStyle = '#20283a'; ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui'; ctx.lineWidth = 1;
+  for (let t = new Date(start); t <= end; t.setHours(t.getHours() + 1)) {
+    if (t.getHours() % 2) continue;
+    const x = xOf(t.getTime());
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, H - padB); ctx.stroke();
+    ctx.fillText(String(t.getHours()).padStart(2, '0'), x + 2, H - padB + 13);
+  }
+  // y ticks + unit
+  ctx.fillStyle = '#8b95a3';
+  for (let i = 0; i <= 2; i++) { const v = mMax * i / 2; ctx.fillText(v.toFixed(0), 6, yM(v) + 3); }
+  ctx.fillStyle = '#ffd24a'; ctx.fillText('mg', 6, padT + 2);
+
+  if (!vib.length) { ctx.fillStyle = '#8b95a3'; ctx.font = '12px system-ui'; ctx.fillText('no vibration data for this night', padL + 8, H / 2); return; }
+
+  // filled area under the mg curve, then the line on top
+  ctx.fillStyle = 'rgba(255,210,74,0.16)';
+  let open = false;
+  vib.forEach(r => {
+    const m = domMg(r);
+    const x = xOf(new Date(r.ts).getTime());
+    if (m == null) { if (open) { ctx.lineTo(x, H - padB); ctx.closePath(); ctx.fill(); open = false; } return; }
+    const y = yM(m);
+    if (!open) { ctx.beginPath(); ctx.moveTo(x, H - padB); ctx.lineTo(x, y); open = true; }
+    else ctx.lineTo(x, y);
+  });
+  if (open) { ctx.lineTo(xOf(new Date(vib[vib.length - 1].ts).getTime()), H - padB); ctx.closePath(); ctx.fill(); }
+
+  ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 1.3; ctx.beginPath(); let started = false;
+  vib.forEach(r => {
+    const m = domMg(r);
+    if (m == null) { started = false; return; }
+    const x = xOf(new Date(r.ts).getTime()), y = yM(m);
+    started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true;
+  });
+  ctx.stroke();
 }
 
 // energy+time-weighted stats over the noise/vibration window
@@ -207,8 +384,23 @@ function statTiles(noise, vib, start, end) {
     tiles.push(stat('Verdict', verdict, verdict === 'FAIL' ? 'z3' : 'z0'));
   }
   if (vib.length) {
-    let pv = 0; vib.forEach(r => pv = Math.max(pv, r.vel_rms_mm_s ?? 0));
-    tiles.push(stat('Peak vibration', pv.toFixed(2) + ' mm/s', pv > VIB_HIGH ? 'z3' : pv > VIB_PERC ? 'z1' : 'z0'));
+    // Peak SNR + how much of the night a compressor was actually running.
+    let peakSnr = 0, onMs = 0, running = false;
+    for (let i = 0; i < vib.length; i++) {
+      const s = vib[i].snr; if (s == null) continue;
+      peakSnr = Math.max(peakSnr, s);
+      if (!running && s >= AC_SNR_ON) running = true;
+      else if (running && s < AC_SNR_OFF) running = false;
+      if (running) {
+        const t = new Date(vib[i].ts).getTime();
+        const tn = i + 1 < vib.length ? new Date(vib[i + 1].ts).getTime() : t;
+        onMs += Math.min(Math.max(tn - t, 0), 120000); // cap gaps at 2 min
+      }
+    }
+    let peakMg = 0; vib.forEach(r => { const m = domMg(r); if (m != null) peakMg = Math.max(peakMg, m); });
+    tiles.push(stat('Peak SNR', peakSnr.toFixed(0) + '×', peakSnr > SNR_STRONG ? 'z3' : peakSnr > AC_SNR_ON ? 'z1' : 'z0'));
+    tiles.push(stat('Peak tone', peakMg.toFixed(1) + ' mg', peakSnr > SNR_STRONG ? 'z2' : 'z0'));
+    tiles.push(stat('AC on-time', fmtDur(onMs), onMs > 3 * 3600000 ? 'z3' : onMs > 0 ? 'z1' : 'z0'));
   }
   return tiles.join('');
 }
@@ -219,7 +411,7 @@ function fmtDur(ms) { const m = Math.round(ms / 60000); return m < 60 ? m + 'm' 
 function heatColor(metric, v) {
   if (v == null) return null;
   let stops;
-  if (metric === 'vibration') stops = [[0, [20, 30, 45]], [VIB_PERC, [33, 120, 90]], [1, [230, 200, 0]], [VIB_HIGH, [255, 77, 77]]];
+  if (metric === 'vibration') stops = [[0, [20, 30, 45]], [AC_SNR_ON, [33, 120, 90]], [SNR_STRONG, [230, 200, 0]], [30, [255, 77, 77]]];
   else stops = [[25, [20, 30, 45]], [DB_SLEEP, [33, 150, 110]], [DB_EVENT, [230, 200, 0]], [60, [255, 138, 30]], [75, [255, 60, 60]]];
   let lo = stops[0], hi = stops[stops.length - 1];
   for (let i = 0; i < stops.length - 1; i++) if (v >= stops[i][0] && v <= stops[i + 1][0]) { lo = stops[i]; hi = stops[i + 1]; break; }
@@ -235,7 +427,7 @@ async function drawHeatmap() {
   const days = +el('hmDays').value;
   const bucket = 15;
   const offset = -new Date().getTimezoneOffset();  // minutes east of UTC
-  const dev = el('device').value, src = el('source').value;
+  const dev = el('device').value, src = primarySource();
   const srcParam = metric === 'vibration' ? (dev ? `&device=${enc(dev)}` : '') : (src ? `&source=${enc(src)}` : '');
   let data;
   try {
@@ -295,8 +487,8 @@ async function drawHeatmap() {
 
 function drawHmLegend(metric) {
   const L = el('hmLegend');
-  const marks = metric === 'vibration' ? [0, VIB_PERC, 1, 2, VIB_HIGH] : [25, DB_SLEEP, DB_EVENT, 60, 75];
-  const unit = metric === 'vibration' ? ' mm/s' : ' dB';
+  const marks = metric === 'vibration' ? [0, 5, AC_SNR_ON, SNR_STRONG, 30] : [25, DB_SLEEP, DB_EVENT, 60, 75];
+  const unit = metric === 'vibration' ? '×' : ' dB';
   L.innerHTML = 'peak: ' + marks.map(v =>
     `<span><i class="sw" style="background:${heatColor(metric, v)}"></i>${v}${unit}</span>`).join(' ');
 }

@@ -4,3 +4,5 @@ Flask-Cors==4.0.1
 gunicorn==22.0.0
 python-dateutil==2.9.0.post0
 tzdata==2024.1
+numpy==2.1.1
+xlrd==2.0.1        # read legacy .xls (BIFF/OLE2) sound-meter exports (e.g. the DSL meter)

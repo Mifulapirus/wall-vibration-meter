@@ -14,6 +14,7 @@
     <h1>Sleep Environment <span class="dim">noise + vibration</span></h1>
     <div class="controls">
       <a class="link" href="/">← live</a>
+      <a class="navbtn" href="/compare">⚖ Compare meters</a>
       <span id="status" class="status">…</span>
     </div>
   </header>
@@ -38,7 +39,7 @@
     <!-- Controls -->
     <section class="panel controlsbar">
       <label>Vibration <select id="device"></select></label>
-      <label>Noise <select id="source"></select></label>
+      <label>Noise <span id="sources" class="srcpicks"><span class="dim">(none yet)</span></span></label>
       <label>Sleep window
         <input type="number" id="nightStart" min="0" max="23" value="22"> :00 –
         <input type="number" id="nightEnd" min="0" max="23" value="7"> :00
@@ -56,12 +57,22 @@
       </div>
       <canvas id="timeline" width="1000" height="320"></canvas>
       <div class="legend">
-        <span><i class="sw" style="background:#35a9ff"></i> noise dB</span>
-        <span><i class="sw" style="background:#ff8a1e"></i> vibration mm/s</span>
+        <span>noise dB <span class="dim">(per source — colours match the picker above)</span></span>
+        <span><i class="sw" style="background:#b98cff"></i> AC vibration (SNR×)</span>
+        <span><i class="sw" style="background:rgba(33,192,122,0.5)"></i> compressor running</span>
         <span><i class="sw dash" style="background:#ff4d4d"></i> WHO 45 dB (awakenings)</span>
         <span><i class="sw dash" style="background:#e6cc00"></i> WHO 30 dB (sleep)</span>
       </div>
       <div id="nightStats" class="statsrow"></div>
+
+      <div class="paneltitle" style="margin-top:16px">
+        <h2>Compressor strength <span class="dim">— peak-tone amplitude (mg), the physical "how hard it's shaking"</span></h2>
+      </div>
+      <canvas id="strength" width="1000" height="180"></canvas>
+      <div class="legend">
+        <span><i class="sw" style="background:#ffd24a"></i> dominant-tone amplitude (mg)</span>
+        <span><i class="sw" style="background:rgba(33,192,122,0.5)"></i> compressor running</span>
+      </div>
     </section>
 
     <!-- Multi-night heatmap -->
@@ -71,7 +82,7 @@
         <div class="nav">
           <select id="hmMetric">
             <option value="noise" selected>noise (dB)</option>
-            <option value="vibration">vibration (mm/s)</option>
+            <option value="vibration">AC vibration (SNR)</option>
           </select>
           <select id="hmDays">
             <option value="7" selected>7 nights</option>

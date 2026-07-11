@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mounting Helper — Wall Vibration</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Mounting Helper <span class="dim">— find the strongest wall coupling</span></h1>
+    <div class="controls">
+      <a class="link" href="/">← dashboard</a>
+      <select id="device" title="Device"></select>
+      <button id="sessionBtn" class="sesbtn" title="Pause history logging while you move the device">⏸ Pause</button>
+      <span id="pausedBadge" class="paused-ind" style="display:none">● PAUSED</span>
+      <button id="resetBtn" class="sesbtn ghost">reset peak</button>
+      <span id="status" class="status">…</span>
+    </div>
+  </header>
+
+  <main class="mount">
+    <div class="bigmeter">
+      <div class="biglabel">Strongest signal <span class="dim">(peak ÷ noise — the honest coupling number)</span></div>
+      <div class="bignum"><span id="snr">--</span><small>× above noise</small></div>
+      <div class="bar"><div class="fill snr" id="snrFill"></div><div class="peak" id="snrPeak"></div></div>
+      <div class="metalabel"><b id="peakFreq">--</b> Hz @ <b id="peakAmp">--</b> mg · peak SNR <b id="snrPeakVal">--</b>× · aim for the highest you can get</div>
+    </div>
+
+    <div class="bigmeter">
+      <div class="biglabel">Overall vibration <span class="dim">(coupling strength)</span></div>
+      <div class="bignum"><span id="accel">--</span><small>mg</small></div>
+      <div class="bar"><div class="fill" id="accelFill"></div><div class="floor" id="accelFloor"></div><div class="peak" id="accelPeak"></div></div>
+      <div class="metalabel">peak <b id="accelPeakVal">--</b> mg · dashed line = noise floor (~5.5 mg) — aim well above it</div>
+    </div>
+
+    <div class="bigmeter">
+      <div class="biglabel">29 Hz band <span class="dim">(25–40 Hz — your target unit)</span></div>
+      <div class="bignum"><span id="band1">--</span><small>mg</small></div>
+      <div class="bar"><div class="fill b1" id="band1Fill"></div><div class="peak" id="band1Peak"></div></div>
+      <div class="metalabel">peak <b id="band1PeakVal">--</b> mg</div>
+    </div>
+
+    <div class="ministats">
+      <div><b id="band2">--</b><span>50–65 Hz (mg)</span></div>
+      <div><b id="vel">--</b><span>velocity (mm/s)</span></div>
+      <div><b id="freq">--</b><span>dominant (Hz)</span></div>
+      <div><b id="age">--</b><span>data age</span></div>
+    </div>
+  </main>
+
+  <script src="/static/mount.js"></script>
+</body>
+</html>

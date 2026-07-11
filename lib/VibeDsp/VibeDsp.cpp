@@ -1,11 +1,13 @@
 #include "VibeDsp.h"
 #include <math.h>
+#include <algorithm>   // std::nth_element (median noise floor)
 
 void VibeDsp::begin() {
     // Hann window: w[n] = 0.5 * (1 - cos(2*pi*n/(N-1)))
     for (int i = 0; i < FFT_SIZE; i++) {
         _window[i] = 0.5f * (1.0f - cosf(2.0f * (float)M_PI * i / (FFT_SIZE - 1)));
     }
+    _havg = false;   // reseed the running average on (re)start
 }
 
 // In-place iterative radix-2 Cooley-Tukey FFT (forward).
@@ -97,6 +99,21 @@ void VibeDsp::analyze(const float* ax, const float* ay, const float* az,
         }
     }
 
+    // --- Exponential average across frames ----------------------------------
+    // Averaging successive power spectra lowers the random-noise variance
+    // (~1/sqrt(effective N)) so weak tonal peaks stand out and the metrics stop
+    // jittering. accel RMS is smoothed the same way for consistency. All the
+    // metrics below are derived from the averaged spectrum _pavg / _accelAvg.
+    if (!_havg) {
+        for (int k = 0; k < half; k++) _pavg[k] = _power[k];
+        _accelAvg = accelRmsG;
+        _havg = true;
+    } else {
+        const float a = SPEC_AVG_ALPHA;
+        for (int k = 0; k < half; k++) _pavg[k] = _pavg[k] * (1.0f - a) + _power[k] * a;
+        _accelAvg = _accelAvg * (1.0f - a) + accelRmsG * a;
+    }
+
     // Convert combined power to single-sided acceleration amplitude (m/s^2).
     // For a Hann window the coherent gain is 0.5, so a tone of amplitude A (g)
     // produces |X[k]| = A * N * 0.5 / 2 = A*N/4  ->  A = 4*|X[k]|/N.
@@ -108,68 +125,91 @@ void VibeDsp::analyze(const float* ax, const float* ay, const float* az,
     int kPeak = kMinDom;
     float pPeak = 0.0f;
     for (int k = kMinDom; k < half; k++) {
-        if (_power[k] > pPeak) { pPeak = _power[k]; kPeak = k; }
+        if (_pavg[k] > pPeak) { pPeak = _pavg[k]; kPeak = k; }
     }
 
     // Parabolic interpolation on the (sqrt of) power for a sub-bin frequency.
     float domFreq = kPeak * binHz;
     if (kPeak > 0 && kPeak < half - 1) {
-        float a = sqrtf(_power[kPeak - 1]);
-        float b = sqrtf(_power[kPeak]);
-        float c = sqrtf(_power[kPeak + 1]);
+        float a = sqrtf(_pavg[kPeak - 1]);
+        float b = sqrtf(_pavg[kPeak]);
+        float c = sqrtf(_pavg[kPeak + 1]);
         float denom = (a - 2 * b + c);
         if (fabsf(denom) > 1e-9f) {
             float delta = 0.5f * (a - c) / denom;   // in [-0.5, 0.5]
             domFreq = (kPeak + delta) * binHz;
         }
     }
-    float domAmpMs2 = ampScale * sqrtf(_power[kPeak]);
+    float domAmpMs2 = ampScale * sqrtf(_pavg[kPeak]);
+
+    // --- Noise floor (median bin power) + SNR of the dominant peak ----------
+    // The median bin is a robust estimate of the broadband sensor-noise floor
+    // (immune to the few signal peaks). SNR = dominant peak / noise floor is the
+    // honest "how much real signal is there" number, independent of the muddy
+    // wideband accel total. _im is free to reuse as scratch after the FFTs.
+    int cnt = 0;
+    for (int k = kMinDom; k < half; k++) _im[cnt++] = _pavg[k];
+    float noisePow = 0.0f;
+    if (cnt > 0) {
+        std::nth_element(_im, _im + cnt / 2, _im + cnt);
+        noisePow = _im[cnt / 2];
+    }
+    float noiseFloorMs2 = ampScale * sqrtf(noisePow);
+    float snr = noiseFloorMs2 > 1e-9f ? domAmpMs2 / noiseFloorMs2 : 0.0f;
 
     // --- RMS velocity via frequency-domain integration ----------------------
-    // Per bin: velocity amplitude V = A / (2*pi*f). RMS over all bins treats
-    // each bin as a sinusoid, so RMS contribution = V/sqrt(2). Skip near-DC
-    // bins where 1/f blows up. The final sum is divided by the window's
-    // Equivalent Noise Bandwidth (Hann ENBW = 1.5 bins); without this the
-    // coherent-gain amplitude scaling double-counts spectral leakage and
-    // overstates the RMS by sqrt(1.5) ~ 1.22x (validated numerically).
+    // (Hann ENBW = 1.5 corrects the coherent-gain scaling; validated numerically.)
     const double HANN_ENBW = 1.5;
     int kMinVel = (int)ceilf(FREQ_MIN_VEL_HZ / binHz);
     if (kMinVel < 1) kMinVel = 1;
     double velSumSq = 0.0;    // (m/s)^2
     for (int k = kMinVel; k < half; k++) {
         float f = k * binHz;
-        float aAmp = ampScale * sqrtf(_power[k]);   // m/s^2 peak
+        float aAmp = ampScale * sqrtf(_pavg[k]);   // m/s^2 peak
         float vAmp = aAmp / (2.0f * (float)M_PI * f);
         velSumSq += 0.5 * (double)vAmp * vAmp;      // peak^2/2 = rms^2
     }
     float velRmsMmS = sqrtf((float)(velSumSq / HANN_ENBW)) * 1000.0f;  // m/s -> mm/s
 
     // --- AC vibration bands (RMS acceleration per band) ---------------------
-    // Partition the exact time-domain RMS by the spectral power fraction in each
-    // band. Self-consistent (no window constant needed): band + rest = total.
-    // Two bands separate the independently-cycling rooftop units.
+    // Partition the (smoothed) time-domain RMS by the spectral power fraction in
+    // each band. Two bands separate the independently-cycling rooftop units.
     double totalPower = 0.0, b1Power = 0.0, b2Power = 0.0;
     int k1Lo = (int)roundf(BAND1_LO_HZ / binHz), k1Hi = (int)roundf(BAND1_HI_HZ / binHz);
     int k2Lo = (int)roundf(BAND2_LO_HZ / binHz), k2Hi = (int)roundf(BAND2_HI_HZ / binHz);
     if (k1Lo < 1) k1Lo = 1;   if (k1Hi > half - 1) k1Hi = half - 1;
     if (k2Lo < 1) k2Lo = 1;   if (k2Hi > half - 1) k2Hi = half - 1;
     for (int k = 1; k < half; k++) {
-        totalPower += _power[k];
-        if (k >= k1Lo && k <= k1Hi) b1Power += _power[k];
-        if (k >= k2Lo && k <= k2Hi) b2Power += _power[k];
+        totalPower += _pavg[k];
+        if (k >= k1Lo && k <= k1Hi) b1Power += _pavg[k];
+        if (k >= k2Lo && k <= k2Hi) b2Power += _pavg[k];
     }
-    float band1RmsG = (totalPower > 0.0) ? accelRmsG * sqrtf((float)(b1Power / totalPower)) : 0.0f;
-    float band2RmsG = (totalPower > 0.0) ? accelRmsG * sqrtf((float)(b2Power / totalPower)) : 0.0f;
+    float band1RmsG = (totalPower > 0.0) ? _accelAvg * sqrtf((float)(b1Power / totalPower)) : 0.0f;
+    float band2RmsG = (totalPower > 0.0) ? _accelAvg * sqrtf((float)(b2Power / totalPower)) : 0.0f;
 
-    // --- Fill spectrum for display (m/s^2 amplitude per bin) ----------------
-    int nBins = half < SPECTRUM_BINS ? half : SPECTRUM_BINS;
-    for (int k = 0; k < nBins; k++) {
-        out.spectrum[k] = ampScale * sqrtf(_power[k]);
+    // --- Fill spectrum for display (averaged m/s^2 amplitude per bin) --------
+    // Decimate the full-resolution spectrum to a coarser ~SPECTRUM_DISP_BIN_HZ
+    // display grid (peak-hold over each group), so the spectrogram's frequency
+    // span stays constant as FFT_SIZE grows. Peak-hold keeps tonal lines visible
+    // instead of averaging them down. decim=1 (a no-op) at FFT_SIZE=1024.
+    int decim = (int)roundf(SPECTRUM_DISP_BIN_HZ / binHz);
+    if (decim < 1) decim = 1;
+    int nBins = half / decim;
+    if (nBins > SPECTRUM_BINS) nBins = SPECTRUM_BINS;
+    for (int j = 0; j < nBins; j++) {
+        float pMax = 0.0f;
+        int base = j * decim;
+        for (int d = 0; d < decim; d++) {
+            float p = _pavg[base + d];
+            if (p > pMax) pMax = p;
+        }
+        out.spectrum[j] = ampScale * sqrtf(pMax);
     }
+    float dispBinHz = binHz * decim;
 
     // --- Populate result ----------------------------------------------------
-    out.accelRmsG   = accelRmsG;
-    out.accelRmsMs2 = accelRmsG * GRAVITY_MS2;
+    out.accelRmsG   = _accelAvg;
+    out.accelRmsMs2 = _accelAvg * GRAVITY_MS2;
     out.accelPeakG  = peakMag;
     out.velRmsMmS   = velRmsMmS;
     out.band1RmsG   = band1RmsG;
@@ -180,10 +220,12 @@ void VibeDsp::analyze(const float* ax, const float* ay, const float* az,
     out.band2HiHz   = BAND2_HI_HZ;
     out.domFreqHz   = domFreq;
     out.domAmpMs2   = domAmpMs2;
+    out.noiseFloorMs2 = noiseFloorMs2;
+    out.snr         = snr;
     out.zone        = zoneFor(velRmsMmS);
     out.fs          = fs;
     out.n           = n;
     out.nBins       = nBins;
-    out.binHz       = binHz;
+    out.binHz       = dispBinHz;   // spacing of the exposed (decimated) spectrum
     out.valid       = true;
 }

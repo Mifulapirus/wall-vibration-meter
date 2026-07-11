@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Coordinated Sound — TAS vs DSL</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Coordinated Sound <span class="dim">— compare two meters (TAS vs DSL)</span></h1>
+    <div class="controls">
+      <a class="link" href="/">← dashboard</a>
+      <a class="link" href="/sleep">sleep view →</a>
+      <span id="status" class="status">…</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 1. Upload both logs -->
+    <section class="panel">
+      <h2>1 · Upload both logs</h2>
+      <div class="cmp-uploads">
+        <label class="cmp-up"><span class="cmp-tag" style="color:#35a9ff">TAS</span>
+          <input type="file" id="tasFile" accept=".csv,.xls,.xlsx,text/csv"></label>
+        <label class="cmp-up"><span class="cmp-tag" style="color:#ff8a1e">DSL</span>
+          <input type="file" id="dslFile" accept=".csv,.xls,.xlsx,text/csv"></label>
+        <label class="tz">tz <input type="text" id="tz" size="18"></label>
+        <button id="analyzeBtn" type="button">Analyze</button>
+        <span id="parseResult" class="dim"></span>
+      </div>
+      <p class="hint dim">Each file's format is auto-detected (TAS = <code>.xlsx</code>,
+        DSL = legacy <code>.xls</code>, or any CSV). Timestamps are read in the timezone
+        above. Play a loud ~1&nbsp;kHz tone for a few seconds at the very start of both
+        recordings — the tool cross-correlates that spike to line the clocks up.</p>
+    </section>
+
+    <!-- 2. Align -->
+    <section class="panel" id="alignPanel" style="display:none">
+      <h2>2 · Clock alignment <span class="dim">— shift DSL to match TAS</span></h2>
+      <div class="cmp-align">
+        <button id="autoBtn" type="button">⤢ Auto-align to tone</button>
+        <span class="cmp-offctl">
+          <button id="nudgeDn" class="ghostbtn" type="button" title="shift DSL earlier">−1s</button>
+          <input type="number" id="offset" step="0.5" value="0"> s
+          <button id="nudgeUp" class="ghostbtn" type="button" title="shift DSL later">+1s</button>
+        </span>
+        <span id="alignInfo" class="dim"></span>
+      </div>
+    </section>
+
+    <!-- 3. Overlay -->
+    <section class="panel" id="overlayPanel" style="display:none">
+      <h2>3 · Levels over time <span class="dim">— both meters + energy average (dbC)</span></h2>
+      <canvas id="overlay" width="1000" height="300"></canvas>
+      <div class="legend" id="overlayLegend">
+        <span class="legtoggle" data-k="tas"><i class="sw" style="background:#35a9ff"></i> TAS</span>
+        <span class="legtoggle" data-k="dsl"><i class="sw" style="background:#ff8a1e"></i> DSL (aligned)</span>
+        <span class="legtoggle" data-k="avg"><i class="sw" style="background:#21c07a"></i> Average (energy)</span>
+        <span class="dim" style="margin-left:6px">(click to show/hide · ▾ marks each meter's tone peak)</span>
+      </div>
+      <div id="cmpStats" class="statsrow"></div>
+    </section>
+
+    <!-- 4. Agreement visuals -->
+    <section class="panel" id="agreePanel" style="display:none">
+      <div class="paneltitle"><h2>4 · How well do the meters agree?</h2></div>
+      <div class="cmp-two">
+        <div>
+          <div class="cmp-subttl">Difference over time <span class="dim">(DSL − TAS)</span></div>
+          <canvas id="diff" width="600" height="240"></canvas>
+        </div>
+        <div>
+          <div class="cmp-subttl">Bland–Altman <span class="dim">(agreement vs level)</span></div>
+          <canvas id="ba" width="600" height="240"></canvas>
+        </div>
+      </div>
+      <p class="hint dim" id="agreeNote"></p>
+    </section>
+
+    <!-- 5. Save -->
+    <section class="panel" id="savePanel" style="display:none">
+      <h2>5 · Publish to dashboard &amp; sleep view</h2>
+      <div class="cmp-align">
+        <button id="saveBtn" type="button">Save aligned TAS / DSL / Average</button>
+        <span id="saveResult" class="dim"></span>
+      </div>
+      <p class="hint dim">Stores three noise sources — <b>TAS</b>, <b>DSL</b> and
+        <b>Average</b> — aligned to the same clock. They then appear on the
+        <a class="link" href="/">dashboard</a> and <a class="link" href="/sleep">sleep view</a>
+        in sync with the wall-vibration data. Re-saving replaces the previous copy.</p>
+    </section>
+
+    <footer id="meta" class="dim">—</footer>
+  </main>
+
+  <script src="/static/compare.js"></script>
+</body>
+</html>

@@ -6,6 +6,13 @@
 // ============================================================================
 
 // ---- Display (GC9A01A, hardware SPI) ---------------------------------------
+// Set to 0 for a bare board with no screen. The 240x240 canvas costs ~115 KB of
+// heap the instant it's constructed (whether or not a display is wired up), and
+// with the larger FFT that leaves too little heap for the WiFi stack to start.
+// Disabling it frees that heap; the LED ring still works as a status/severity
+// indicator. Set back to 1 on a unit that actually has the round display.
+#define DISPLAY_ENABLE 0
+
 #define TFT_CS   7    // GPIO7  chip select
 #define TFT_DC   10   // GPIO10 data/command
 // SPI SCK/MOSI use the ESP32-C3 default pins (same as Activity Dice)
@@ -28,10 +35,24 @@
 // frequencies (typ. 25-60 Hz) and their harmonics.
 #define SAMPLE_RATE_HZ   800.0f
 
-// FFT length (power of two). 1024 @ 800 Hz -> 0.78 Hz resolution, ~1.28 s/frame.
-// Lower it (e.g. 512) for snappier updates, raise it for finer frequency
-// resolution and lower noise.
-#define FFT_SIZE         1024
+// FFT length (power of two). 4096 @ 800 Hz -> 0.195 Hz resolution, ~5.1 s/frame.
+// Longer captures integrate steady tones coherently while random sensor noise
+// spreads across more (narrower) bins, so the noise floor drops ~sqrt(N):
+// vs 1024 this lowers it ~2x, roughly doubling the SNR on weak compressor lines
+// (measured: the 8192-sample raw-capture experiment read ~5x below the 1024 floor).
+// The exposed display spectrum is decimated back to ~0.78 Hz bins (see VibeDsp)
+// so the spectrogram range is unchanged; only the metrics gain resolution.
+// 4096 is the safe ceiling on this bare board: ~162 KB static leaves ~162 KB
+// heap for WiFi+HTTP. 8192 would leave only ~50 KB (the regime that OOMs WiFi)
+// unless capture/FFT is reworked to a single axis. Lower it (512/1024) for
+// snappier updates at the cost of a higher noise floor.
+#define FFT_SIZE         4096
+
+// Target display-spectrum bin width (Hz). The full-resolution spectrum is
+// decimated (peak-hold) to this coarser grid before it's exposed to the
+// dashboard, keeping the spectrogram's frequency span constant regardless of
+// FFT_SIZE. At FFT_SIZE=1024 this is a no-op (decimation factor 1).
+#define SPECTRUM_DISP_BIN_HZ  0.78f
 
 // Accelerometer full scale. Wall vibration is tiny (<< 1 g), so +/-2 g gives
 // the best resolution (16384 LSB/g).
@@ -58,6 +79,12 @@
 #define BAND1_HI_HZ  40.0f
 #define BAND2_LO_HZ  50.0f
 #define BAND2_HI_HZ  65.0f
+
+// Exponential averaging of the power spectrum across frames. Lowers the random
+// noise floor so weak tonal peaks stand out and metrics stop jittering. Smaller
+// alpha = more averaging (steadier, slower to react). ~0.2 = a 5-frame average
+// (~6 s response). Raise toward 1.0 for faster, noisier readings.
+#define SPEC_AVG_ALPHA  0.2f
 
 // ---- Severity thresholds (RMS velocity, mm/s) ------------------------------
 // NOTE: Walls are not rotating machines, so ISO 10816 is only a loose guide.
@@ -95,11 +122,21 @@
 // The device pulls + installs firmware when the server manifest advertises a
 // HIGHER version than this. Uses plain HTTP (TLS won't fit alongside the
 // display canvas), same as the metrics push.
-#define FIRMWARE_VERSION          4
+#define FIRMWARE_VERSION          9
 #define OTA_ENABLE                1
 #define OTA_MANIFEST_URL          "http://wallvibe.thehomelab.dev/api/firmware/latest"
 #define OTA_CHECK_INTERVAL_MS     1800000UL     // re-check every 30 min
 #define OTA_FIRST_CHECK_MS        15000UL       // first check 15 s after boot
+
+// ---- High-resolution raw-snippet capture (experiment) ----------------------
+// Periodically capture a long single-axis time series and POST it raw; the
+// server does a high-resolution FFT to try to resolve individual compressors
+// (their motor lines differ by load/slip). Blocks ~11 s per capture.
+#define RAW_CAPTURE_ENABLE        0
+#define RAW_CAPTURE_N             8192          // samples @ SAMPLE_RATE (10.24 s -> 0.098 Hz native)
+#define RAW_CAPTURE_URL           "http://wallvibe.thehomelab.dev/api/rawcapture"
+#define RAW_CAPTURE_INTERVAL_MS   180000UL      // every 3 min
+#define RAW_CAPTURE_FIRST_MS      45000UL       // first capture 45 s after boot
 
 // ---- Constants -------------------------------------------------------------
 #define GRAVITY_MS2  9.80665f

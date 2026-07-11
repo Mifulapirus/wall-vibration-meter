@@ -26,6 +26,7 @@
 #include "WebUi.h"
 #include "HistoryClient.h"
 #include "OtaClient.h"
+#include "RawCapture.h"
 
 // --- Modules ---------------------------------------------------------------
 ImuVibe   imu;
@@ -49,6 +50,13 @@ void setupOTA() {
 
 void setup() {
     Serial.begin(115200);
+
+    // A full capture busy-polls the IMU for FFT_SIZE / SAMPLE_RATE seconds
+    // (~5.1 s at 4096 @ 800 Hz). That starves the idle task past the 5 s task
+    // watchdog, which panics and boot-loops. WiFi/lwIP run on higher-priority
+    // tasks and are unaffected, and the capture is bounded (per-sample timeout),
+    // so releasing the idle-task watchdog on the single core is the safe fix.
+    disableCore0WDT();
 
     MeterUi::begin();
     MeterUi::splash("Wall Vibe", "Meter");
@@ -99,6 +107,11 @@ void setup() {
     Serial.printf("Remote OTA enabled (running fw v%d) -> %s\n", FIRMWARE_VERSION, OTA_MANIFEST_URL);
 #endif
 
+#if RAW_CAPTURE_ENABLE
+    { String m = WiFi.macAddress(); m.replace(":", ""); RawCapture::begin(RAW_CAPTURE_URL, m.c_str()); }
+    Serial.printf("Raw high-res capture enabled -> %s\n", RAW_CAPTURE_URL);
+#endif
+
     MeterUi::splash("Ready", WiFi.localIP().toString());
     delay(1000);
 }
@@ -109,6 +122,9 @@ void loop() {
 #if OTA_ENABLE
     OtaClient::loop();      // rate-limited remote update check
 #endif
+#if RAW_CAPTURE_ENABLE
+    RawCapture::loop(imu);  // rate-limited high-res raw snippet capture
+#endif
 
     // Capture one block (blocks ~ FFT_SIZE / SAMPLE_RATE seconds).
     if (imu.capture(bufX, bufY, bufZ, FFT_SIZE)) {
@@ -118,9 +134,9 @@ void loop() {
 
         MeterUi::render(latest);
 
-        Serial.printf("v=%.3f mm/s  f=%.1f Hz  a=%.1f mg  b1=%.1f b2=%.1f mg  zone=%d\n",
-                      r.velRmsMmS, r.domFreqHz, r.accelRmsG * 1000.0f,
-                      r.band1RmsG * 1000.0f, r.band2RmsG * 1000.0f, r.zone);
+        Serial.printf("v=%.3f mm/s  f=%.1f Hz (%.0f mg, SNR %.1fx)  a=%.1f mg  b1=%.1f b2=%.1f mg\n",
+                      r.velRmsMmS, r.domFreqHz, r.domAmpMs2 / GRAVITY_MS2 * 1000.0f, r.snr,
+                      r.accelRmsG * 1000.0f, r.band1RmsG * 1000.0f, r.band2RmsG * 1000.0f);
 
 #if HISTORY_ENABLE
         // Push to the history server on an interval (measurements keep running

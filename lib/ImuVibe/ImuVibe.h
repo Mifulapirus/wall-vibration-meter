@@ -28,6 +28,11 @@ public:
     // Read one instantaneous sample (g). Handy for a live "is it alive" check.
     bool readOnce(float& ax, float& ay, float& az);
 
+    // Capture `count` raw int16 counts of a single axis (0=x,1=y,2=z),
+    // drdy-synchronised. Used for the high-resolution raw snippet the server
+    // analyses. Returns false on I2C timeout.
+    bool captureRawAxis(int16_t* buf, int count, int axis);
+
     float sampleRate() const { return _sampleRate; }
     bool  ok() const { return _ok; }
 

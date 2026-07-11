@@ -18,7 +18,13 @@ function noiseFloorMg(rows) {
   return v.length < 8 ? 0 : v[Math.floor(v.length * 0.2)];
 }
 const activeThreshMg = (floor) => Math.max(floor * 1.5, floor + 3);
-const isActive = (r) => gActiveThresh === 0 || accelMg(r) > gActiveThresh;
+// A reading's dominant frequency is "real" when its peak clears the noise floor.
+// Prefer the on-device SNR (v5+); fall back to the accel-floor heuristic.
+const isActive = (r) => (r.snr != null) ? r.snr > 2.5 : (gActiveThresh === 0 || accelMg(r) > gActiveThresh);
+
+// Focus the frequency charts on the AC source range (~28-120 Hz), with margin.
+const VIEW_FMIN = 20, VIEW_FMAX = 130;
+const clampF = (f) => Math.max(VIEW_FMIN, Math.min(VIEW_FMAX, f));
 
 // Time-range options (value = hours, fractional for minute ranges). The API's
 // `hours` param accepts fractions, so 1 min = 1/60 h. Populated from JS so the
@@ -49,6 +55,11 @@ function populateRanges() {
 function setStatus(t, cls) { const s = el('status'); s.textContent = t; s.className = 'status ' + (cls || ''); }
 function fmtTime(iso) { const d = new Date(iso); return d.toLocaleString(); }
 
+// Device is considered disconnected if it hasn't pushed for ~5 cycles.
+// A measurement/push cycle is ~5 s at FFT_SIZE=4096 (fw v8+), so ~30 s of
+// silence = offline. (Generous for older 1.3 s-cycle firmware, which is fine.)
+const STALE_MS = 30000;
+
 async function loadDevices() {
   const res = await fetch('/api/devices');
   const devs = await res.json();
@@ -59,10 +70,37 @@ async function loadDevices() {
   for (const d of devs) {
     const o = document.createElement('option');
     o.value = d.device_id;
-    o.textContent = d.device_id + ' (' + d.count + ')';
+    const fw = d.latest && d.latest.fw_version != null ? ' · fw' + d.latest.fw_version : '';
+    o.textContent = d.device_id + fw + ' (' + d.count + ')';
     sel.appendChild(o);
   }
   if (cur) sel.value = cur;
+}
+
+// --- Session pause/resume --------------------------------------------------
+let gPaused = false;
+function renderSession() {
+  const b = el('sessionBtn');
+  b.textContent = gPaused ? '▶ Resume' : '⏸ Pause';
+  b.classList.toggle('paused', gPaused);
+  el('pausedBadge').style.display = gPaused ? '' : 'none';
+}
+async function loadSession() {
+  const dev = el('device').value;
+  if (!dev) return;
+  try {
+    const s = await fetch('/api/session/' + encodeURIComponent(dev)).then(r => r.json());
+    gPaused = !!s.paused; renderSession();
+  } catch (e) { /* leave as-is */ }
+}
+async function toggleSession() {
+  const dev = el('device').value;
+  if (!dev) return;
+  const s = await fetch('/api/session/' + encodeURIComponent(dev), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paused: !gPaused }),
+  }).then(r => r.json());
+  gPaused = !!s.paused; renderSession();
 }
 
 // Latest readings currently plotted on the line charts. Kept client-side so the
@@ -71,40 +109,178 @@ let curRows = [];
 
 // Cheap, frequent poll: latest reading -> live tiles + live chart tips.
 async function refreshTiles() {
+  const dev = encodeURIComponent(el('device').value);
   try {
-    const d = await fetch('/api/latest?device=' + encodeURIComponent(el('device').value),
-                          { cache: 'no-store' }).then(r => r.json());
+    // /api/latest = last stored reading (tiles); /api/live = last push time
+    // (fresh even while paused) -> the true device connection state.
+    const [d, live, snd] = await Promise.all([
+      fetch('/api/latest?device=' + dev, { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/live/' + dev, { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/noise/latest?source=Average', { cache: 'no-store' }).then(r => r.json()).catch(() => ({})),
+    ]);
     updateTiles(d);
+    updateSoundTile(snd);
     // Append the newest point so the velocity/frequency charts advance at the
     // same 2 s cadence as the tiles (the periodic full refresh resyncs/decimates).
     if (d && d.ts && (!curRows.length || d.ts > curRows[curRows.length - 1].ts)) {
       curRows.push(d);
-      drawVelocity(curRows);
-      drawBands(curRows);
+      drawStrength(curRows);
+      drawActivity(curRows);
       drawFreq(curRows);
     }
-    setStatus('live', 'ok');
+    // Connection chip: live if the device pushed within ~5 cycles, else offline.
+    const ageMs = (live && live.valid && live.ts) ? (Date.now() - new Date(live.ts).getTime()) : Infinity;
+    if (ageMs > STALE_MS) setStatus('● disconnected', 'err');
+    else setStatus('● live', 'ok');
   } catch (e) {
-    setStatus('error — ' + e.message, 'err');
+    setStatus('● offline', 'err');
+  }
+}
+
+// Live average sound level tile — newest pushed dB reading (source "Average").
+function updateSoundTile(n) {
+  const span = el('soundAvg'), tile = el('soundTile');
+  if (!span || !tile) return;
+  if (n && n.spl_db != null) {
+    span.textContent = n.spl_db.toFixed(1);
+    const ageMs = n.ts ? (Date.now() - new Date(n.ts).getTime()) : Infinity;
+    tile.style.opacity = ageMs > STALE_MS ? '0.5' : '1';   // dim when the feed goes stale
+  } else {
+    span.textContent = '--';
+    tile.style.opacity = '0.5';
   }
 }
 
 // Heavier poll: the full time-series + spectra (spectrogram) for the charts.
 async function refreshCharts() {
   try {
-    const [rows, specs] = await Promise.all([
+    const [rows, specs, units] = await Promise.all([
       fetch('/api/readings?' + qs(), { cache: 'no-store' }).then(r => r.json()),
       fetch('/api/spectra?' + qs(), { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/units?' + qs(), { cache: 'no-store' }).then(r => r.json()),
     ]);
     curRows = rows;
-    drawVelocity(rows);
-    drawBands(rows);
+    // Share the vibration window with the noise overlay so the x-axes line up.
+    vibBounds = rows.length >= 2 ? timeBounds(rows) : null;
+    drawStrength(rows);
+    drawActivity(rows);
     drawFreq(rows);
+    drawUnits(units);
     drawSpectrogram(specs);
+    await refreshNoise();
     el('meta').textContent = `${rows.length} readings · ${specs.length} spectra in view`;
   } catch (e) {
     setStatus('error — ' + e.message, 'err');
   }
+}
+
+// --- Imported noise (dB) overlay ------------------------------------------
+// Any dB sources imported via /compare or /sleep (e.g. TAS, DSL, Average) are
+// drawn on their own panel over the SAME time window as the vibration charts, so
+// sound and wall-vibration read together. The panel hides itself when no sources
+// exist yet.
+const NOISE_COLORS = { TAS: '#35a9ff', DSL: '#ff8a1e', Average: '#21c07a' };
+const NOISE_FALLBACK = ['#c77dff', '#ffd24a', '#4dd0e1', '#ff6f91', '#9ccc65'];
+const DB_SLEEP = 30, DB_EVENT = 45;   // WHO bedroom guidance (indoor)
+let noiseVisible = {};   // source -> bool
+let noiseColor = {};     // source -> css color
+let noiseData = {};      // source -> [{ts, spl_db}] over the current window
+let vibBounds = null;    // [t0, t1] from the vibration rows, for x-axis sync
+
+async function loadNoiseSources() {
+  let srcs = [];
+  try { srcs = await fetch('/api/noise/sources').then(r => r.json()); } catch (e) { return; }
+  if (!srcs.length) { el('noisePanel').style.display = 'none'; return; }
+  el('noisePanel').style.display = '';
+  const leg = el('noiseLegend'); leg.innerHTML = '';
+  srcs.map(s => s.source).forEach((n, i) => {
+    if (!(n in noiseVisible)) noiseVisible[n] = true;
+    noiseColor[n] = NOISE_COLORS[n] || NOISE_FALLBACK[i % NOISE_FALLBACK.length];
+    const span = document.createElement('span');
+    span.className = 'legtoggle'; span.style.cursor = 'pointer'; span.style.userSelect = 'none';
+    span.style.opacity = noiseVisible[n] ? '1' : '0.4';
+    span.style.textDecoration = noiseVisible[n] ? 'none' : 'line-through';
+    span.innerHTML = `<i class="sw" style="background:${noiseColor[n]}"></i> ${n}`;
+    span.addEventListener('click', () => {
+      noiseVisible[n] = !noiseVisible[n];
+      span.style.opacity = noiseVisible[n] ? '1' : '0.4';
+      span.style.textDecoration = noiseVisible[n] ? 'none' : 'line-through';
+      drawNoise();
+    });
+    leg.appendChild(span);
+  });
+}
+
+async function refreshNoise() {
+  const names = Object.keys(noiseColor);
+  if (!names.length || el('noisePanel').style.display === 'none') return;
+  // Match the vibration window exactly when we have it, else fall back to hours.
+  const win = vibBounds
+    ? `from=${enc(new Date(vibBounds[0]).toISOString())}&to=${enc(new Date(vibBounds[1]).toISOString())}`
+    : `hours=${el('range').value}`;
+  const got = await Promise.all(names.map(n =>
+    fetch(`/api/noise?source=${enc(n)}&${win}`, { cache: 'no-store' })
+      .then(r => r.json()).then(d => [n, d]).catch(() => [n, []])));
+  noiseData = Object.fromEntries(got);
+  drawNoise();
+}
+const enc = encodeURIComponent;
+
+function drawNoise() {
+  const c = el('noiseChart'); if (!c) return;
+  const ctx = c.getContext('2d'); const W = c.width, H = c.height, pad = 40;
+  ctx.clearRect(0, 0, W, H);
+  const shown = Object.keys(noiseData).filter(n => noiseVisible[n] && (noiseData[n] || []).length);
+  const allPts = shown.flatMap(n => noiseData[n]);
+  if (!allPts.length) { ctx.fillStyle = '#8b95a3'; ctx.font = '12px system-ui'; ctx.fillText('no dB data in this window', pad + 8, H / 2); return; }
+  // x-axis: prefer the vibration window so it aligns with the charts above.
+  const [t0, t1] = vibBounds || [
+    Math.min(...allPts.map(p => new Date(p.ts).getTime())),
+    Math.max(...allPts.map(p => new Date(p.ts).getTime())) + 1];
+  let dbMax = DB_EVENT + 5, dbMin = 25;
+  allPts.forEach(p => { if (p.spl_db != null) dbMax = Math.max(dbMax, p.spl_db + 3); });
+  dbMax = Math.ceil(dbMax / 5) * 5;
+  const xOf = (t) => pad + ((t - t0) / (t1 - t0)) * (W - pad - 10);
+  const yOf = (v) => (H - pad) - ((v - dbMin) / (dbMax - dbMin)) * (H - pad - 10);
+
+  // Compressor-ON shading (from the vibration SNR) behind the dB lines, so the
+  // sound level reads together with when the AC was actually running.
+  if (curRows && curRows.length) {
+    ctx.fillStyle = 'rgba(33,192,122,0.13)';
+    let spanStart = null, running = false;
+    const flush = (x) => { if (spanStart != null) { ctx.fillRect(spanStart, 10, Math.max(1, x - spanStart), H - pad - 10); spanStart = null; } };
+    curRows.forEach(r => {
+      const t = new Date(r.ts).getTime();
+      if (t < t0 || t > t1) return;
+      const x = xOf(t), s = r.snr;
+      if (s != null) { if (!running && s >= AC_SNR_ON) running = true; else if (running && s < AC_SNR_ON - 3) running = false; }
+      if (running) { if (spanStart == null) spanStart = x; } else flush(x);
+    });
+    flush(xOf(t1));
+  }
+
+  drawTimeAxis(ctx, W, H, pad, t0, t1);
+  ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui';
+  for (let v = dbMin; v <= dbMax; v += 10) ctx.fillText(v + ' dB', 2, yOf(v) + 3);
+  // WHO reference lines
+  const dash = (v, col, lbl) => {
+    ctx.strokeStyle = col; ctx.setLineDash([5, 4]); ctx.beginPath();
+    ctx.moveTo(pad, yOf(v)); ctx.lineTo(W - 10, yOf(v)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = col; ctx.fillText(lbl, pad + 4, yOf(v) - 3);
+  };
+  if (DB_EVENT <= dbMax) dash(DB_EVENT, 'rgba(255,77,77,0.7)', 'WHO 45 dB');
+  if (DB_SLEEP >= dbMin) dash(DB_SLEEP, 'rgba(230,204,0,0.6)', 'WHO 30 dB');
+
+  shown.forEach(n => {
+    ctx.strokeStyle = noiseColor[n]; ctx.lineWidth = n === 'Average' ? 2.2 : 1.4; ctx.beginPath();
+    let started = false;
+    noiseData[n].forEach(p => {
+      if (p.spl_db == null) { started = false; return; }
+      const x = xOf(new Date(p.ts).getTime()), y = yOf(p.spl_db);
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true;
+    });
+    ctx.stroke();
+  });
 }
 
 // Latest band edges (for spectrogram overlay). Fall back to fw<=3 single band.
@@ -113,28 +289,64 @@ const COL_B1 = '#c77dff', COL_B2 = '#ff8a1e';   // low band / compressor band co
 const b1mg = (r) => (r.band1_rms_g != null ? r.band1_rms_g : r.band_rms_g || 0) * 1000;
 const b2mg = (r) => (r.band2_rms_g != null ? r.band2_rms_g : 0) * 1000;
 
+// A compressor is "running" when the strongest peak stands well above the noise
+// floor (SNR). Threshold calibrated against a night of Type-2 bedroom dB data:
+// SNR>=10 matched when the AC was *audibly* disruptive (>~50 dB) with 88%
+// agreement and zero missed loud periods, whereas SNR 3-10 mostly occurred at
+// the quiet ~48 dB baseline (a compressor coupling faintly but not audible).
+// OFF-hysteresis at 7 keeps the span from blinking near the threshold.
+// Pre-v5 readings have no SNR, so fall back to the band totals.
+const AC_SNR_ON = 10;         // turn "running" ON above this (× above noise)
+const AC_SNR_OFF = 7;         // ...and OFF only below this (hysteresis kills flicker)
+const AC_BAND_ON_MG = 4.5;    // fallback: band1+band2 total (mg)
+function acOn(r) {            // instantaneous state (latest-reading tile)
+  if (r.snr != null) return r.snr > AC_SNR_ON;
+  const b = b1mg(r) + b2mg(r);
+  return b > 0 ? b > AC_BAND_ON_MG : null;
+}
+
+// Compressor "strength" = amplitude of the dominant tone in mg — the physical
+// magnitude you feel. Replaces RMS velocity on the dashboard, which de-weights
+// the 58-120 Hz compressor tones (~1/f) and stayed flat whether the AC was on.
+const domMg = (r) => (r.dom_amp_ms2 != null ? r.dom_amp_ms2 / 9.80665 * 1000 : 0);
+const SNR_STRONG = 20;   // clearly strong coupling
+const STRENGTH_NAMES  = ['quiet', 'ON', 'STRONG'];
+const STRENGTH_COLORS = ['#8b95a3', '#e6cc00', '#ff8a1e'];
+function strengthTier(d) {   // intensity tier from SNR (matches "is it running")
+  const s = d.snr;
+  if (s == null || s < AC_SNR_ON) return 0;
+  return s < SNR_STRONG ? 1 : 2;
+}
+
 function updateTiles(d) {
   if (!d || !d.ts) { return; }
-  el('vel').textContent = (d.vel_rms_mm_s ?? 0).toFixed(3);
+  el('vel').textContent = domMg(d).toFixed(1);
   // Gate the dominant frequency: show "—" when this reading is just noise floor.
   const freqReal = isActive(d);
   el('freq').textContent = freqReal ? (d.dom_freq_hz ?? 0).toFixed(1) : '—';
   el('freq').style.color = freqReal ? '' : 'var(--muted)';
+  el('freqSnr').textContent = (d.snr != null && d.snr > 0) ? `${d.snr.toFixed(1)}× vs noise` : '';
   el('accel').textContent = ((d.accel_rms_g ?? 0) * 1000).toFixed(1);
-  el('band1').textContent = d.band1_rms_g != null ? b1mg(d).toFixed(1) : '--';
-  el('band2').textContent = d.band2_rms_g != null ? b2mg(d).toFixed(1) : '--';
-  if (d.band1_lo_hz) {
+  // AC compressor on/off status
+  const on = acOn(d);
+  el('acStatus').textContent = on == null ? '—' : (on ? 'ON' : 'quiet');
+  el('acStatus').style.color = on ? 'var(--z0)' : 'var(--muted)';
+  el('acTile').style.borderColor = on ? 'var(--z0)' : 'var(--line)';
+  el('acDetail').textContent = on && d.dom_freq_hz
+    ? `${d.dom_freq_hz.toFixed(0)} Hz` + (d.snr != null ? ` · ${d.snr.toFixed(0)}× vs noise` : '')
+    : (on === false ? 'no compressor detected' : '');
+  if (d.band1_lo_hz) {   // keep band edges for the spectrogram markers
     band1Lo = d.band1_lo_hz; band1Hi = d.band1_hi_hz; band2Lo = d.band2_lo_hz; band2Hi = d.band2_hi_hz;
-    el('band1Range').textContent = `${d.band1_lo_hz | 0}–${d.band1_hi_hz | 0} Hz`;
-    el('band2Range').textContent = `${d.band2_lo_hz | 0}–${d.band2_hi_hz | 0} Hz`;
   }
-  el('seen').textContent = fmtTime(d.ts);
-  const z = d.zone | 0;
+  el('fwBadge').textContent = d.fw_version != null ? 'fw v' + d.fw_version : '';
+  const z = strengthTier(d);
+  const col = STRENGTH_COLORS[z];
   const badge = el('zone');
-  badge.textContent = ZONE_NAMES[z]; badge.className = 'badge z' + z;
+  badge.textContent = STRENGTH_NAMES[z]; badge.className = 'badge';
+  badge.style.color = col; badge.style.borderColor = col;
   const tile = el('velTile');
-  tile.style.borderColor = ZONE_COLORS[z];
-  tile.style.boxShadow = '0 0 0 1px ' + ZONE_COLORS[z] + ', 0 0 24px -8px ' + ZONE_COLORS[z];
+  tile.style.borderColor = col;
+  tile.style.boxShadow = '0 0 0 1px ' + col + ', 0 0 24px -8px ' + col;
 }
 
 // --- Shared time-axis helpers ---------------------------------------------
@@ -158,50 +370,134 @@ function drawTimeAxis(ctx, W, H, pad, t0, t1) {
   }
 }
 
-function drawVelocity(rows) {
+// Compressor vibration strength over time: dominant-tone amplitude (mg), which
+// actually moves with the AC — unlike RMS velocity, which stayed flat because it
+// de-weights the compressor frequencies.
+function drawStrength(rows) {
   const c = el('velChart'), ctx = c.getContext('2d'); const W = c.width, H = c.height, pad = 40;
   ctx.clearRect(0, 0, W, H);
   if (rows.length < 2) return;
   const [t0, t1] = timeBounds(rows);
-  let max = Z.z3 * 1.1;
-  for (const r of rows) max = Math.max(max, r.vel_rms_mm_s || 0);
-  const yOf = (v) => (H - pad) - (v / max) * (H - pad - 10);
+  let max = 4;
+  for (const r of rows) max = Math.max(max, domMg(r));
+  max = Math.ceil(max / 2) * 2;
+  const yOf = (v) => (H - pad) - (Math.min(v, max) / max) * (H - pad - 10);
   const xOf = (t) => pad + ((t - t0) / (t1 - t0)) * (W - pad - 10);
 
-  // Zone bands
-  const bands = [[0, Z.z1, '#21c07a'], [Z.z1, Z.z2, '#e6cc00'], [Z.z2, Z.z3, '#ff8a1e'], [Z.z3, max, '#ff4d4d']];
-  for (const [lo, hi, col] of bands) { ctx.fillStyle = col + '18'; ctx.fillRect(pad, yOf(hi), W - pad - 10, yOf(lo) - yOf(hi)); }
   drawTimeAxis(ctx, W, H, pad, t0, t1);
-  ctx.fillStyle = '#35a9ff'; ctx.fillText(max.toFixed(1) + ' mm/s', 2, 12); ctx.fillStyle = '#8b95a3'; ctx.fillText('0', 2, H - pad);
+  ctx.fillStyle = '#ffd24a'; ctx.fillText(max.toFixed(0) + ' mg', 2, 12); ctx.fillStyle = '#8b95a3'; ctx.fillText('0', 2, H - pad);
 
-  ctx.strokeStyle = '#35a9ff'; ctx.lineWidth = 1.6; ctx.beginPath();
-  rows.forEach((r, i) => { const x = xOf(new Date(r.ts).getTime()), y = yOf(r.vel_rms_mm_s || 0); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  // filled area under the strength curve
+  ctx.beginPath(); let started = false, lastX = pad;
+  rows.forEach(r => {
+    const x = xOf(new Date(r.ts).getTime()), y = yOf(domMg(r));
+    started ? ctx.lineTo(x, y) : (ctx.moveTo(x, H - pad), ctx.lineTo(x, y)); started = true; lastX = x;
+  });
+  if (started) { ctx.lineTo(lastX, H - pad); ctx.closePath(); ctx.fillStyle = 'rgba(255,210,74,0.16)'; ctx.fill(); }
+
+  ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 1.6; ctx.beginPath();
+  rows.forEach((r, i) => { const x = xOf(new Date(r.ts).getTime()), y = yOf(domMg(r)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
   ctx.stroke();
 }
 
-// Two AC vibration bands over time — which type of rooftop unit is running.
-function drawBands(rows) {
+// Per-unit compressor strength (mg) over time — each rooftop unit on its own
+// trace (from /api/units), so a unit that's running but not the loudest is still
+// visible. Data comes from the stored spectra, so it also works over history.
+const UNIT_DEFS = [
+  { key: 'u28',  color: '#35a9ff' },   // 4-pole (~28 Hz)
+  { key: 'u58',  color: '#21c07a' },   // 2-pole fundamental (~58 Hz)
+  { key: 'u120', color: '#ff8a1e' },   // 2-pole 2nd harmonic (~120 Hz)
+];
+const unitVisible = { u28: true, u58: true, u120: true };   // toggled via the legend
+let curUnits = [];                                          // cached so toggles redraw without refetch
+function drawUnits(rows) {
+  if (rows) curUnits = rows;
+  const data = curUnits;
+  const c = el('unitsChart'); if (!c) return;
+  const ctx = c.getContext('2d'); const W = c.width, H = c.height, pad = 40;
+  ctx.clearRect(0, 0, W, H);
+  if (!data || data.length < 2) return;
+  const vis = UNIT_DEFS.filter(u => unitVisible[u.key]);
+  const [t0, t1] = timeBounds(data);
+  // Scale to the visible traces only, so hiding a loud unit zooms in on the rest.
+  let max = 4;
+  for (const r of data) for (const u of vis) max = Math.max(max, r[u.key] || 0);
+  max = Math.ceil(max / 2) * 2;
+  const yOf = (v) => (H - pad) - (Math.min(v, max) / max) * (H - pad - 10);
+  const xOf = (t) => pad + ((t - t0) / (t1 - t0)) * (W - pad - 10);
+  drawTimeAxis(ctx, W, H, pad, t0, t1);
+  ctx.fillStyle = '#8b95a3'; ctx.fillText(max.toFixed(0) + ' mg', 2, 12); ctx.fillText('0', 2, H - pad);
+  for (const u of vis) {
+    ctx.strokeStyle = u.color; ctx.lineWidth = 1.5; ctx.beginPath(); let started = false;
+    data.forEach(r => {
+      const v = r[u.key];
+      if (v == null) { started = false; return; }
+      const x = xOf(new Date(r.ts).getTime()), y = yOf(v);
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true;
+    });
+    ctx.stroke();
+  }
+}
+// Clickable legend: show/hide each unit's trace.
+document.querySelectorAll('#unitsLegend .legtoggle').forEach(span => {
+  span.style.cursor = 'pointer'; span.style.userSelect = 'none';
+  span.addEventListener('click', () => {
+    const k = span.dataset.unit;
+    unitVisible[k] = !unitVisible[k];
+    span.style.opacity = unitVisible[k] ? '1' : '0.4';
+    span.style.textDecoration = unitVisible[k] ? 'none' : 'line-through';
+    drawUnits();   // redraw from cache, no refetch
+  });
+});
+
+// AC compressor activity over time: signal strength (SNR) with the "running"
+// periods shaded green, so on/off cycles are obvious at a glance.
+function drawActivity(rows) {
   const c = el('bandChart'), ctx = c.getContext('2d'); const W = c.width, H = c.height, pad = 40;
   ctx.clearRect(0, 0, W, H);
   if (rows.length < 2) return;
   const [t0, t1] = timeBounds(rows);
-  let max = 1;
-  for (const r of rows) max = Math.max(max, b1mg(r), b2mg(r));
-  max = Math.ceil(max * 1.1);
-  const yOf = (v) => (H - pad) - (v / max) * (H - pad - 10);
+  let max = AC_SNR_ON * 2;
+  for (const r of rows) if (r.snr != null) max = Math.max(max, r.snr);
+  max = Math.ceil(max / 5) * 5;
+  const yOf = (v) => (H - pad) - (Math.min(v, max) / max) * (H - pad - 10);
   const xOf = (t) => pad + ((t - t0) / (t1 - t0)) * (W - pad - 10);
-  drawTimeAxis(ctx, W, H, pad, t0, t1);
-  ctx.fillStyle = '#8b95a3'; ctx.fillText(max + ' mg', 2, 12); ctx.fillText('0', 2, H - pad);
 
-  const line = (getter, col) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.beginPath();
-    rows.forEach((r, i) => { const x = xOf(new Date(r.ts).getTime()), y = yOf(getter(r)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  };
-  line(b1mg, COL_B1);   // low band (4-pole / fans)
-  line(b2mg, COL_B2);   // compressor band (2-pole)
-  el('band1Legend').textContent = `low band ${band1Lo | 0}–${band1Hi | 0} Hz`;
-  el('band2Legend').textContent = `compressor band ${band2Lo | 0}–${band2Hi | 0} Hz`;
+  // Shade contiguous "AC running" spans, with hysteresis: a steady-but-weak unit
+  // that dips to the threshold stays latched "on" until SNR clearly drops, so the
+  // shading doesn't blink. Genuine shutdowns (SNR -> 1-2) still break the span.
+  ctx.fillStyle = 'rgba(33,192,122,0.16)';
+  let spanStart = null, running = false;
+  const flush = (x) => { if (spanStart != null) { ctx.fillRect(spanStart, 6, Math.max(1, x - spanStart), H - pad - 6); spanStart = null; } };
+  rows.forEach((r) => {
+    const x = xOf(new Date(r.ts).getTime());
+    if (r.snr != null) {
+      if (!running && r.snr >= AC_SNR_ON) running = true;
+      else if (running && r.snr < AC_SNR_OFF) running = false;
+    } else {
+      running = acOn(r) === true;   // pre-v5 fallback (band totals, no hysteresis)
+    }
+    if (running) { if (spanStart == null) spanStart = x; } else flush(x);
+  });
+  flush(xOf(t1));
+
+  drawTimeAxis(ctx, W, H, pad, t0, t1);
+
+  // "AC on" threshold line
+  const yT = yOf(AC_SNR_ON);
+  ctx.strokeStyle = 'rgba(33,192,122,0.7)'; ctx.setLineDash([5, 4]); ctx.beginPath();
+  ctx.moveTo(pad, yT); ctx.lineTo(W - 10, yT); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = '#8b95a3'; ctx.fillText(max + '×', 2, 12); ctx.fillText('0', 2, H - pad);
+  ctx.fillStyle = '#21c07a'; ctx.fillText('AC-on threshold', pad + 5, yT - 3);
+
+  // SNR line (v5+ readings)
+  ctx.strokeStyle = '#35a9ff'; ctx.lineWidth = 1.5; ctx.beginPath(); let started = false;
+  rows.forEach((r) => {
+    if (r.snr == null) { started = false; return; }
+    const x = xOf(new Date(r.ts).getTime()), y = yOf(r.snr);
+    started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true;
+  });
+  ctx.stroke();
 }
 
 // Most common dominant-frequency bands in the window. Clusters readings whose
@@ -232,13 +528,12 @@ function drawFreq(rows) {
   ctx.clearRect(0, 0, W, H);
   if (rows.length < 2) return;
   const [t0, t1] = timeBounds(rows);
-  let max = 10;
-  for (const r of rows) max = Math.max(max, r.dom_freq_hz || 0);
-  max = Math.ceil(max / 10) * 10;
-  const yOf = (v) => (H - pad) - (v / max) * (H - pad - 10);
+  // Fixed y-axis focused on the AC source range; out-of-range points clamp to the edges.
+  const yOf = (v) => (H - pad) - ((clampF(v) - VIEW_FMIN) / (VIEW_FMAX - VIEW_FMIN)) * (H - pad - 10);
   const xOf = (t) => pad + ((t - t0) / (t1 - t0)) * (W - pad - 10);
   drawTimeAxis(ctx, W, H, pad, t0, t1);
-  ctx.fillStyle = '#8b95a3'; ctx.fillText(max + ' Hz', 2, 12); ctx.fillText('0', 2, H - pad);
+  ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui';
+  for (let f = VIEW_FMIN; f <= VIEW_FMAX; f += 20) ctx.fillText(f + ' Hz', 2, yOf(f) + 3);
 
   // SNR gate: only count readings whose energy beats the noise floor.
   const floor = noiseFloorMg(rows);
@@ -253,6 +548,7 @@ function drawFreq(rows) {
     ctx.fillText('quiet — no dominant above noise floor (' + floor.toFixed(0) + ' mg)', pad + 110, 12);
   }
   tops.forEach((t, i) => {
+    if (t.freq < VIEW_FMIN || t.freq > VIEW_FMAX) return;   // don't label out-of-view bands
     const y = yOf(t.freq);
     ctx.strokeStyle = i === 0 ? 'rgba(53,169,255,0.8)' : 'rgba(255,255,255,0.28)';
     ctx.lineWidth = i === 0 ? 1.4 : 1;
@@ -292,10 +588,13 @@ function drawSpectrogram(specs) {
 
   const binHz = specs[0].bin_hz || 1;
   const nBins = specs[0].n_bins || specs[0].values.length;
-  const fmax = binHz * (nBins - 1);
-  // Global max for normalisation (convert to mg).
+  // Focus on the AC source band: only map bins within [VIEW_FMIN, VIEW_FMAX].
+  const kLo = Math.max(1, Math.round(VIEW_FMIN / binHz));
+  const kHi = Math.min(nBins - 1, Math.round(VIEW_FMAX / binHz));
+  const kSpan = Math.max(1, kHi - kLo);
+  // Normalise over the visible band only, so contrast lands where it matters.
   let vmax = 1e-9;
-  for (const s of specs) for (let k = 1; k < s.values.length; k++) vmax = Math.max(vmax, s.values[k]);
+  for (const s of specs) for (let k = kLo; k <= kHi && k < s.values.length; k++) vmax = Math.max(vmax, s.values[k]);
 
   const gx = pad, gy = 6, gw = W - pad - 10, gh = H - pad - 6;
   const colW = Math.max(1, gw / specs.length);
@@ -305,10 +604,9 @@ function drawSpectrogram(specs) {
   for (let i = 0; i < specs.length; i++) {
     const s = specs[i];
     const x = gx + (gw * i) / specs.length;
-    const n = s.values.length;
-    for (let k = 1; k < n; k++) {
-      const y0 = gy + gh - (k / (n - 1)) * gh;
-      const y1 = gy + gh - ((k + 1) / (n - 1)) * gh;
+    for (let k = kLo; k <= kHi && k < s.values.length; k++) {
+      const y0 = gy + gh - ((k - kLo) / kSpan) * gh;
+      const y1 = gy + gh - ((k + 1 - kLo) / kSpan) * gh;
       // log scaling makes weak lines visible
       const norm = Math.log10(1 + 9 * (s.values[k] / vmax));
       ctx.fillStyle = heat(norm);
@@ -316,8 +614,8 @@ function drawSpectrogram(specs) {
     }
   }
 
-  // Band markers: bracket each metric band on the frequency axis.
-  const yF = (f) => gy + gh - (Math.min(f, fmax) / fmax) * gh;
+  // Band markers: bracket each metric band on the (focused) frequency axis.
+  const yF = (f) => gy + gh - ((clampF(f) - VIEW_FMIN) / (VIEW_FMAX - VIEW_FMIN)) * gh;
   ctx.font = '10px system-ui'; ctx.lineWidth = 1;
   const markBand = (lo, hi, col, label) => {
     ctx.strokeStyle = col; ctx.setLineDash([6, 4]);
@@ -328,10 +626,10 @@ function drawSpectrogram(specs) {
   markBand(band1Lo, band1Hi, 'rgba(199,125,255,0.85)', 'low band');
   markBand(band2Lo, band2Hi, 'rgba(255,138,30,0.85)', 'comp band');
 
-  // Frequency axis (right side labels)
+  // Frequency axis (focused range)
   ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui';
-  for (let f = 0; f <= fmax; f += 20) {
-    const y = gy + gh - (f / fmax) * gh;
+  for (let f = VIEW_FMIN; f <= VIEW_FMAX; f += 20) {
+    const y = gy + gh - ((f - VIEW_FMIN) / (VIEW_FMAX - VIEW_FMIN)) * gh;
     ctx.fillText(f + 'Hz', 2, y + 3);
   }
   drawTimeAxis(ctx, W, H, pad, t0, t1);
@@ -354,16 +652,21 @@ function onControlsChange() {
   refreshCharts();
   scheduleCharts();   // re-time the chart loop to the new range
 }
-el('device').addEventListener('change', onControlsChange);
+el('device').addEventListener('change', () => { onControlsChange(); loadSession(); });
 el('range').addEventListener('change', onControlsChange);
+el('sessionBtn').addEventListener('click', toggleSession);
 
 async function boot() {
   populateRanges();
   await loadDevices();
-  await refreshCharts();              // load history first...
-  await refreshTiles();              // ...then start live tips
+  await loadSession();               // pause/resume state for the selected device
+  await refreshTiles();              // fast: live numbers appear immediately
+  await loadNoiseSources();          // show the dB overlay panel if any sources exist
   setInterval(refreshTiles, 2000);    // live tiles + chart tips every 2 s
   setInterval(loadDevices, 30000);    // device list rarely changes
+  setInterval(loadNoiseSources, 30000); // pick up newly-imported noise sources
+  setInterval(loadSession, 5000);     // reflect pause state (in case toggled elsewhere)
+  refreshCharts();                    // heavier: charts fill in without blocking the page
   scheduleCharts();                   // charts every 5 s / 20 s by range
 }
 boot();

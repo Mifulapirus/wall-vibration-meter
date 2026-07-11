@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wall Vibration Habitability Report</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .rep { max-width: 900px; margin: 0 auto; padding: 24px; }
+    .verdict { border-radius: 14px; padding: 20px 24px; margin-bottom: 22px; border: 1px solid var(--line); }
+    .verdict .badge2 { font-size: 13px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+    .verdict h2 { margin: 6px 0 10px; font-size: 26px; }
+    .verdict ul { margin: 8px 0 0; padding-left: 18px; }
+    .verdict li { margin: 4px 0; font-size: 14px; }
+    .verdict.poor { background: #2a1416; border-color: #ff4d4d55; }
+    .verdict.marginal { background: #2a2410; border-color: #e6cc0055; }
+    .verdict.ok { background: #10241a; border-color: #21c07a55; }
+    .verdict.poor .badge2 { color: #ff6b60; } .verdict.marginal .badge2 { color: #e6cc00; } .verdict.ok .badge2 { color: #3fb950; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 22px; }
+    .rcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .rcard .n { font-size: 30px; font-weight: 800; letter-spacing: -1px; }
+    .rcard .n small { font-size: 15px; color: var(--muted); font-weight: 600; }
+    .rcard .l { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .rcard .h { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.35; }
+    .sec { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+    .sec h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 0 0 10px; }
+    .sec p { margin: 8px 0; font-size: 14.5px; line-height: 1.5; }
+    .sec b { color: var(--text); }
+    .assume { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    #onbar { width: 100%; height: 40px; display: block; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Wall Vibration <span class="dim">habitability report</span></h1>
+    <div class="controls">
+      <a class="link" href="/">← dashboard</a>
+      <a class="link" href="/live">live →</a>
+      <select id="window" title="Window">
+        <option value="4">last 4 h</option>
+        <option value="12" selected>last 12 h</option>
+        <option value="24">last 24 h</option>
+      </select>
+    </div>
+  </header>
+
+  <main class="rep">
+    <div id="verdict" class="verdict"><div class="badge2">…</div><h2>Analyzing…</h2></div>
+
+    <div class="cards" id="cards"></div>
+
+    <section class="sec">
+      <h3>What these levels sound like <span class="dim">(reference for non-technical readers)</span></h3>
+      <canvas id="soundScale" width="1000" height="96" style="width:100%;height:auto;display:block"></canvas>
+      <p id="pScale"></p>
+    </section>
+
+    <section class="sec">
+      <h3>Recurring noise events during sleep hours</h3>
+      <canvas id="onbar" width="1000" height="40"></canvas>
+      <p id="pEvents"></p>
+    </section>
+
+    <section class="sec">
+      <h3>Low-frequency character</h3>
+      <canvas id="lfChart" width="1000" height="132" style="width:100%;height:auto;display:block;margin-bottom:8px"></canvas>
+      <p id="pLow"></p>
+    </section>
+
+    <section class="sec">
+      <h3>Comparison to WHO sleep guidance</h3>
+      <p id="pWho"></p>
+    </section>
+
+    <section class="sec">
+      <h3>Method</h3>
+      <p class="assume" id="pMethod"></p>
+    </section>
+
+    <footer id="meta"></footer>
+  </main>
+
+  <script src="/static/report.js"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wall Vibration — Live</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .live-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+    @media (max-width: 720px) { .live-grid { grid-template-columns: 1fr; } }
+    .live-card { background: var(--panel); border: 1px solid var(--line); border-top-width: 3px;
+      border-radius: 14px; padding: 18px 20px; }
+    .live-card .src { font-size: 13px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .6px; font-weight: 700; }
+    .live-card .db { font-size: 66px; font-weight: 800; line-height: 1.05; letter-spacing: -2px; margin: 4px 0; }
+    .live-card .db small { font-size: 20px; color: var(--muted); font-weight: 600; margin-left: 6px; letter-spacing: 0; }
+    .live-card .sub { font-size: 12px; color: var(--muted); }
+    .live-card .sub b { color: var(--text); font-weight: 600; }
+    .live-card.stale { opacity: .55; }
+    .livedot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--z0);
+      margin-right: 6px; vertical-align: 0; box-shadow: 0 0 0 0 var(--z0); animation: pulse 2s infinite; }
+    .livedot.off { background: var(--muted); animation: none; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(33,192,122,.5);} 70% { box-shadow: 0 0 0 7px rgba(33,192,122,0);} 100% { box-shadow: 0 0 0 0 rgba(33,192,122,0);} }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Wall Vibration <span class="dim">live</span></h1>
+    <div class="controls">
+      <a class="link" href="/">← dashboard</a>
+      <a class="link" href="/sleep">sleep view →</a>
+      <span id="liveState" class="status"><span class="livedot off"></span>connecting…</span>
+      <select id="window" title="Rolling window">
+        <option value="1">1 min</option>
+        <option value="5">5 min</option>
+        <option value="10" selected>10 min</option>
+        <option value="30">30 min</option>
+      </select>
+    </div>
+  </header>
+
+  <main>
+    <section class="live-grid" id="cards"></section>
+
+    <section class="panel">
+      <h2>Rolling sound level <span class="dim">— updates every 2 s</span></h2>
+      <canvas id="liveChart" width="1000" height="320"></canvas>
+    </section>
+
+    <footer id="meta">—</footer>
+  </main>
+
+  <script src="/static/live.js"></script>
+</body>
+</html>

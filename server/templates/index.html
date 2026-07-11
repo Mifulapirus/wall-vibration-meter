@@ -13,8 +13,15 @@
   <header>
     <h1>Wall Vibration <span class="dim">history</span></h1>
     <div class="controls">
+      <a class="link" href="/live">live →</a>
+      <a class="navbtn" href="/report">📋 Report</a>
+      <a class="link" href="/mount">mount helper →</a>
       <a class="link" href="/sleep">sleep view →</a>
+      <a class="navbtn" href="/compare">⚖ Compare meters</a>
       <select id="device" title="Device"></select>
+      <span id="fwBadge" class="fwbadge" title="Device firmware version"></span>
+      <button id="sessionBtn" class="sesbtn" title="Pause logging while you handle/mount the device">⏸ Pause</button>
+      <span id="pausedBadge" class="paused-ind" style="display:none">● PAUSED — not logging</span>
       <select id="range" title="Time range">
         <!-- Populated by app.js (populateRanges); kept here for no-JS fallback. -->
         <option value="0.016666666666666666">1 min</option>
@@ -33,42 +40,55 @@
   <main>
     <section class="tiles">
       <div class="tile" id="velTile">
-        <div class="value"><span id="vel">--</span><small>mm/s</small></div>
-        <div class="label">Latest RMS velocity <span id="zone" class="badge">—</span></div>
+        <div class="value"><span id="vel">--</span><small>mg</small></div>
+        <div class="label">Compressor strength <span id="zone" class="badge">—</span></div>
       </div>
-      <div class="tile" id="band1Tile">
-        <div class="value"><span id="band1">--</span><small>mg</small></div>
-        <div class="label">Low band <span id="band1Range" class="dim"></span></div>
-      </div>
-      <div class="tile" id="band2Tile">
-        <div class="value"><span id="band2">--</span><small>mg</small></div>
-        <div class="label">Compressor band <span id="band2Range" class="dim"></span></div>
+      <div class="tile" id="acTile">
+        <div class="value" id="acStatus">--</div>
+        <div class="label">AC compressor <span id="acDetail" class="dim"></span></div>
       </div>
       <div class="tile">
         <div class="value"><span id="freq">--</span><small>Hz</small></div>
-        <div class="label">Dominant frequency</div>
+        <div class="label">Dominant frequency <span id="freqSnr" class="dim"></span></div>
       </div>
       <div class="tile">
         <div class="value"><span id="accel">--</span><small>mg</small></div>
         <div class="label">RMS acceleration</div>
       </div>
-      <div class="tile">
-        <div class="value"><span id="seen">--</span></div>
-        <div class="label">Last reading</div>
+      <div class="tile" id="soundTile">
+        <div class="value"><span id="soundAvg">--</span><small>dB</small></div>
+        <div class="label">Live sound level <span class="dim">avg</span></div>
       </div>
     </section>
 
     <section class="panel">
-      <h2>RMS velocity over time</h2>
+      <h2>Compressor vibration strength <span class="dim">— dominant-tone amplitude (mg)</span></h2>
       <canvas id="velChart" width="1000" height="260"></canvas>
     </section>
 
     <section class="panel">
-      <h2>AC vibration bands over time <span class="dim">(which units are running)</span></h2>
+      <h2>Compressor units <span class="dim">— per-unit strength (mg), so each unit is visible even when it isn't the loudest</span></h2>
+      <canvas id="unitsChart" width="1000" height="240"></canvas>
+      <div class="legend" id="unitsLegend">
+        <span class="legtoggle" data-unit="u28"><i class="sw" style="background:#35a9ff"></i> ~28 Hz (4-pole unit)</span>
+        <span class="legtoggle" data-unit="u58"><i class="sw" style="background:#21c07a"></i> ~58 Hz (2-pole unit)</span>
+        <span class="legtoggle" data-unit="u120"><i class="sw" style="background:#ff8a1e"></i> ~120 Hz (2-pole 2nd harmonic)</span>
+        <span class="dim" style="margin-left:6px">(click to show/hide)</span>
+      </div>
+    </section>
+
+    <section class="panel" id="noisePanel" style="display:none">
+      <h2>Sound level <span class="dim">— imported meter dB, in sync with the vibration above</span></h2>
+      <canvas id="noiseChart" width="1000" height="220"></canvas>
+      <div class="legend" id="noiseLegend"></div>
+    </section>
+
+    <section class="panel">
+      <h2>AC compressor activity <span class="dim">(green = a compressor is running)</span></h2>
       <canvas id="bandChart" width="1000" height="220"></canvas>
       <div class="legend">
-        <span><i class="sw" style="background:#c77dff"></i> <span id="band1Legend">low band</span> — 4-pole / fans</span>
-        <span><i class="sw" style="background:#ff8a1e"></i> <span id="band2Legend">compressor band</span> — 2-pole</span>
+        <span><i class="sw" style="background:#35a9ff"></i> signal strength (× above noise)</span>
+        <span><i class="sw" style="background:#21c07a"></i> AC running (above the dashed threshold)</span>
       </div>
     </section>
 
