@@ -4,10 +4,10 @@
 # the device. Safe: backs up the current conf, validates with `nginx -t`, and
 # rolls back automatically if validation fails.
 #
-# Run:  sudo bash /srv/apps/wallvibe/deploy/enable-http-ingest.sh
+# Run:  sudo bash /srv/apps/wallvibe/server/deploy/enable-http-ingest.sh
 set -euo pipefail
 
-SRC=/srv/apps/wallvibe/deploy/wallvibe.thehomelab.dev.conf
+SRC=/srv/apps/wallvibe/server/deploy/wallvibe.thehomelab.dev.conf
 DST=/etc/nginx/sites-available/wallvibe.thehomelab.dev.conf
 BAK="${DST}.bak.$(date +%s)"
 

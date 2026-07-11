@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Privileged install steps for the Wall Vibration Meter history server.
-# Everything non-root (app files, venv, deps) is already deployed to
-# /srv/apps/wallvibe. This script only ADDS wallvibe-specific units/config —
-# it never edits other projects' files. Safe to re-run (idempotent).
+# Everything non-root (git checkout, venv, deps) is already in place at
+# /srv/apps/wallvibe (sparse checkout of server/). This script only ADDS
+# wallvibe-specific units/config — it never edits other projects' files.
+# Safe to re-run (idempotent).
 #
-# Run:  sudo bash /srv/apps/wallvibe/deploy/install-root.sh
+# Run:  sudo bash /srv/apps/wallvibe/server/deploy/install-root.sh
 set -euo pipefail
 
-APP=/srv/apps/wallvibe
+# APP = the server/ subdir of the checkout (holds app.py + deploy/).
+APP=/srv/apps/wallvibe/server
 DOMAIN=wallvibe.thehomelab.dev
 
 echo ">> Pre-flight collision checks"

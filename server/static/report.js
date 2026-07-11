@@ -18,11 +18,12 @@ function card(n, unit, label, hint, color) {
 }
 
 function soundLike(db) {
-  const t = [[0, 'total silence'], [20, 'a quiet rural night'], [25, 'rustling leaves'], [30, 'a soft whisper'],
-    [35, 'a quiet library'], [40, 'a fridge in the next room'], [45, 'a quiet office or light rain'],
-    [50, 'steady rainfall'], [55, 'a coffee maker percolating'], [60, 'a normal conversation'],
-    [65, 'background television'], [70, 'a vacuum cleaner'], [75, 'a dishwasher up close'], [80, 'city traffic'],
-    [85, 'a garbage disposal'], [90, 'a lawnmower'], [95, 'a motorcycle']];
+  const t = [[0, 'total silence'], [25, 'a quiet rural night'], [30, 'a whisper'], [35, 'a quiet library'],
+    [40, 'a refrigerator humming in the room'], [45, 'a window air-conditioner running in the room'],
+    [50, 'a box fan on high beside the bed'], [55, 'a dishwasher in the next room'], [60, 'a voice at the bedside'],
+    [63, 'a raised voice, loud enough that people must talk over it'], [68, 'a vacuum cleaner running in the room'],
+    [73, 'an alarm clock going off'], [78, 'a garbage disposal'], [85, 'standing next to a busy road'],
+    [90, 'a lawnmower'], [95, 'a motorcycle revving']];
   let best = t[0];
   for (const x of t) { if (db >= x[0]) best = x; else break; }
   return best[1];
@@ -68,27 +69,28 @@ async function load() {
     `<ul>` +
     `<li>The rooftop air conditioning compressor cycled on <b>${surges} times</b> during the ${span}-hour night, about once every <b>${everyMin} minutes</b>.</li>` +
     `<li>Each activation added a low-frequency surge of about <b>+${f1(C.delta_leq)} dBC</b>, comparable to a truck idling outside the window.</li>` +
-    `<li>Sound stayed above the WHO <b>45 dBA</b> awakening threshold for <b>${f0(A.above45_pct)}%</b> of the night, peaking near <b>${f0(A.lmax)} dBA</b>.</li>` +
-    `<li>The night average was <b>${f1(laeq)} dBA</b>, about <b>${times ? times.toFixed(1) : 'n/a'} times as loud</b> as the WHO 30 dBA sleep guideline.</li>` +
+    `<li>The sound reached peaks near <b>${f0(A.lmax)} dBA</b>, loud enough to force a person to raise their voice, and stayed above the WHO <b>45 dBA</b> awakening threshold for <b>${f0(A.above45_pct)}%</b> of the night.</li>` +
+    `<li>The bedroom held a <b>${f1(laeq)} dBA</b> average, about <b>${times ? times.toFixed(1) : 'n/a'} times as loud</b> as a room fit for sleep, with no lasting quiet all night.</li>` +
     `</ul>`;
 
   el('cards').innerHTML =
-    card(f0(A.lmax), 'dBA', 'Peak level', `loudest measured, near ${soundLike(A.lmax)}`, sev === 'poor' ? '#ff6b60' : '') +
+    card(f0(A.lmax), 'dBA', 'Peak level', `loud enough to force a raised voice`, sev === 'poor' ? '#ff6b60' : '') +
     card(f0(A.above45_pct), '%', 'Night above 45 dBA', 'above the awakening threshold') +
     card(surges != null ? surges : 'n/a', '', 'AC activations', everyMin ? `about 1 every ${everyMin} min` : '') +
     card('+' + f1(C.delta_leq), 'dBC', 'Surge per cycle', 'low-frequency step, each activation') +
     card(f0(comp.duty_pct), '%', 'AC duty cycle', `running up to ${f0(comp.longest_on_min)} min at a time`) +
-    card(f1(laeq), 'dBA', 'Night average', `equivalent level, near ${soundLike(laeq)}`);
+    card(f1(laeq), 'dBA', 'Night average', `like a window AC left running in the room, all night`);
 
   drawOnBar(d);
   drawScale(laeq, A.lmax);
   drawLfBars(A.delta_leq, C.delta_leq);
 
   el('pScale').innerHTML =
-    `The red marker shows where the bedroom peaks land: near <b>${f0(A.lmax)} dBA</b>, about as loud as ${soundLike(A.lmax)}, ` +
-    `inside a room meant for sleep. WHO's bedroom limit (green marker) is <b>30 dBA</b>, about ${soundLike(WHO_BED)}. ` +
-    `Because loudness roughly doubles every 10 dB, those peaks are several times louder than anything a bedroom should reach at ` +
-    `night, and they return again and again before morning rather than occurring once.`;
+    `A bedroom fit for sleep should be as quiet as ${soundLike(WHO_BED)} (WHO's 30 dBA, green marker). This room instead reaches ` +
+    `peaks near <b>${f0(A.lmax)} dBA</b> (red marker): ${soundLike(A.lmax)}. At that level a person in the room would have to raise ` +
+    `their voice to be heard over it, and it is driven by a low-frequency rumble like a heavy truck idling directly outside the window. ` +
+    `The sustained level, <b>${f1(laeq)} dBA</b>, is comparable to ${soundLike(laeq)}, holding all night long. Because loudness roughly ` +
+    `doubles every 10 dB, the peaks are several times louder than anything a bedroom should ever reach, and they return every ${everyMin} minutes until morning.`;
 
   el('pEvents').innerHTML =
     `Through the ${span}-hour night the rooftop compressor started <b>${surges} separate times</b>, about once every ` +
@@ -99,8 +101,9 @@ async function load() {
     `repeated night-time awakenings. In the bar above, red marks every stretch the compressor was running and green the brief quiet gaps.`;
 
   el('pLow').innerHTML =
-    `The hardest part to sleep through is felt as much as heard: a deep, low-frequency rumble that surges every time the compressor ` +
-    `starts. The chart above compares it. A standard sound meter, tuned to the human voice, captures only part of the jump ` +
+    `The hardest part to sleep through is felt as much as heard: a deep, low-frequency rumble, like a bus or heavy truck left idling ` +
+    `at the curb, that pushes through the wall every time the compressor starts. The chart above compares it. A standard sound meter, ` +
+    `tuned to the human voice, captures only part of the jump ` +
     `(about <b>+${f1(A.delta_leq)} dB</b>); the real low-frequency energy is close to double that (<b>+${f1(C.delta_leq)} dB</b>). ` +
     `Low-frequency noise like this passes through walls and floors far more easily than ordinary sound and is the hardest to block out ` +
     `or sleep through. Its pitch, near <b>${f0(comp.dom_freq_median_on)} Hz</b>, matches the air-conditioning motor and is confirmed by the vibration measured in the wall.`;

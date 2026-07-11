@@ -5,7 +5,10 @@ After=network.target
 [Service]
 User=angel
 Group=www-data
-WorkingDirectory=/srv/apps/wallvibe
+# /srv/apps/wallvibe is a git checkout of this repo (sparse: server/ only).
+# The app lives in the server/ subdir; the venv + data/ + firmware/ live at
+# the checkout root, untracked, and are referenced by absolute paths below.
+WorkingDirectory=/srv/apps/wallvibe/server
 Environment=DB_PATH=/srv/apps/wallvibe/data/wallvibe.db
 Environment=PORT=5006
 Environment=SPECTRUM_MIN_INTERVAL_S=30

@@ -4,10 +4,10 @@
 # nginx before reloading, rolls back the conf on failure. Only touches the
 # wallvibe site + service.
 #
-# Run:  sudo bash /srv/apps/wallvibe/deploy/update.sh
+# Run:  sudo bash /srv/apps/wallvibe/server/deploy/update.sh
 set -euo pipefail
 
-SRC=/srv/apps/wallvibe/deploy/wallvibe.thehomelab.dev.conf
+SRC=/srv/apps/wallvibe/server/deploy/wallvibe.thehomelab.dev.conf
 DST=/etc/nginx/sites-available/wallvibe.thehomelab.dev.conf
 BAK="${DST}.bak.$(date +%s)"
 
