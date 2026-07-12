@@ -216,8 +216,8 @@ function drawSpectrum(spectra) {
   ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui'; ctx.strokeStyle = '#20283a'; ctx.lineWidth = 1;
   for (let hz = 0; hz <= FMAX; hz += 40) { const xx = x(hz); ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, H - padB); ctx.stroke(); ctx.textAlign = 'center'; ctx.fillText(hz + (hz === FMAX ? ' Hz' : ''), xx, H - padB + 14); }
   ctx.textAlign = 'start';
-  for (let i = 0; i <= 2; i++) { const mg = vmax * i / 2; ctx.fillText(mg.toFixed(1), 4, y(mg) + 3); }
-  ctx.fillText('mg', 4, padT + 2);
+  // y ticks; append the unit to the top label so nothing overlaps
+  for (let i = 0; i <= 2; i++) { const mg = vmax * i / 2; ctx.fillText(mg.toFixed(1) + (i === 2 ? ' mg' : ''), 4, y(mg) + (i === 2 ? 9 : 3)); }
 
   // expected tone markers
   ctx.textAlign = 'center';
