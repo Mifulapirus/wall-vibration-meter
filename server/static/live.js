@@ -3,9 +3,7 @@
 // meter_gui.py from the PC the USB meters are plugged into.
 
 const SOURCES = [
-  { name: 'TAS',     color: '#35a9ff' },
-  { name: 'DSL',     color: '#ff8a1e' },
-  { name: 'Average', color: '#21c07a' },
+  { name: 'DSL', color: '#ff8a1e' },
 ];
 const FRESH_S = 6;          // a source is "live" if its newest sample is within this many seconds
 const el = (id) => document.getElementById(id);
@@ -129,7 +127,7 @@ function draw() {
   for (const s of SOURCES) {
     const arr = (data[s.name] || []).filter(p => p.ts >= t0);
     if (arr.length < 1) continue;
-    ctx.strokeStyle = s.color; ctx.lineWidth = s.name === 'Average' ? 2.4 : 1.5;
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.8;
     ctx.beginPath();
     arr.forEach((p, i) => { const px = x(p.ts), py = y(p.db); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
     ctx.stroke();

@@ -1,16 +1,19 @@
 # USB sound-meter HID protocols
 
-Reverse-engineered so both bench meters can be read directly over USB, with no
+Reverse-engineered so the bench meter can be read directly over USB, with no
 vendor software (no manual `.xls`/`.xlsx` export). Verified 2026-07-10 against
 each vendor app and the physical LCDs. Used by [`read_meters.py`](read_meters.py).
+
+> **DSL is the only connected meter.** The TAS reader was retired on 2026-07-12
+> (single-meter setup, no more two-meter averaging). Its protocol is kept below
+> for reference but is no longer read by the tools.
 
 ## Setup
 
 ```
 pip install hidapi
-python tools/read_meters.py                       # live, both meters, 1 Hz
+python tools/read_meters.py                       # live DSL, 1 Hz
 python tools/read_meters.py --csv run.csv         # also append to CSV
-python tools/read_meters.py --meters tas          # one meter only
 python tools/read_meters.py --interval 0.5 --duration 60
 ```
 
@@ -19,34 +22,27 @@ open **exclusively** — see the DSL note below.
 
 ## Live push to Capek-web
 
-The meters are USB-connected to a local PC; the website runs elsewhere. So a
-local agent reads the meters and pushes readings over the network — it does not
-require the meters to be on the server.
+The DSL meter is USB-connected to a local PC; the website runs elsewhere. So a
+local agent reads the meter and pushes readings over the network — it does not
+require the meter to be on the server.
 
 ```
-# on the PC with the meters (close SoundLab first so DSL is readable):
+# on the PC with the meter (close SoundLab first so DSL is readable):
 python tools/meter_agent.py --server https://capek.example.dev --token SECRET
-python tools/meter_agent.py --server http://localhost:5006 --no-avg     # no averaged source
+python tools/meter_agent.py --server http://localhost:5006
 ```
 
-- Agent samples both meters (default 1 Hz), buffers readings, and POSTs batches
-  (default every 5 s) to **`POST /api/noise/live`**. Readings survive a brief
+- Agent samples DSL (default 1 Hz), buffers readings, and POSTs batches (default
+  every 5 s) to **`POST /api/noise/live`**. Readings survive a brief
   server/network outage (bounded local buffer, retried on the next flush).
-- Both meters share the PC clock, so no tone-alignment is needed (unlike the
-  `/compare` file path). `AVG` is a per-second energy average of the two.
-- Server stores each reading as a `Noise` row with `source` = `TAS` / `DSL` /
-  `AVG` (names configurable via `--names`), so they appear in the existing
-  dashboard, `/sleep`, and heatmap views immediately.
+- Server stores each reading as a `Noise` row with `source` = `DSL` (rename via
+  `--name`), so they appear in the existing dashboard, `/sleep`, and heatmap
+  views immediately.
 - Endpoint body: `{"readings":[{"source","ts","spl_db","lamax"?,"lamin"?}, ...]}`;
   honors the server's `INGEST_TOKEN` via the `X-Device-Token` header. Missing
   `ts` is stamped on receipt.
 
-> Note: `--names TAS,DSL,AVG` reuse the same source names the `/compare` import
-> writes, and re-committing a comparison **deletes and replaces** those sources.
-> Use distinct names (e.g. `--names TAS-live,DSL-live,AVG-live`) if you want live
-> data to coexist with comparison imports.
-
-## TAS — TASI TA652
+## TAS — TASI TA652 (retired)
 
 - HID `VID 0x2F81 PID 0x5721`, usage page `0x8C` (Windows mislabels it a
   "barcode badge reader"). 64-byte in/out reports, no report ID.

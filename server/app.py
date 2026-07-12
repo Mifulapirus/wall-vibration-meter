@@ -758,10 +758,10 @@ def noise_live():
 
 @app.get("/api/noise/latest")
 def noise_latest():
-    """Newest dB reading for a source (default 'Average') — for the dashboard's
+    """Newest dB reading for a source (default 'DSL') — for the dashboard's
     live sound-level tile."""
     q = Noise.query
-    src = request.args.get("source", "Average")
+    src = request.args.get("source", "DSL")
     if src:
         q = q.filter_by(source=src)
     r = q.order_by(Noise.ts.desc()).first()
@@ -820,7 +820,9 @@ def _fusion_window():
 def fusion():
     t_from, t_to = _fusion_window()
     dev = request.args.get("device")
-    asrc = request.args.get("asource", "TAS")     # A-weighted -> WHO comparison
+    # DSL is the single connected meter now; callers that have a separate
+    # A-weighted reference (e.g. the report's eS528L-night) pass asource explicitly.
+    asrc = request.args.get("asource", "DSL")     # anchor source -> WHO comparison
     csrc = request.args.get("csource", "DSL")     # C-weighted -> low-frequency indicator
     snr_on = float(request.args.get("snr_on", "10"))
     handling_db = float(request.args.get("handling_db", "999"))   # drop samples above this (self-noise/handling)
@@ -962,119 +964,6 @@ def fusion():
         lowfreq=lowfreq,
         who=who,
     )
-
-
-# --- Coordinated two-meter comparison (TAS vs DSL) -------------------------
-# Two independent sound meters record the same room. Their clocks drift by a few
-# seconds, so a loud 1 kHz tone is played at the start of each recording; the
-# client cross-correlates the two level tracks around that tone to find the lag,
-# then commits both series (aligned) plus an energy-averaged combined series as
-# ordinary Noise "sources" — so they flow into the dashboard and sleep views in
-# sync with vibration, exactly like any other imported dB log.
-
-def _energy_avg_db(vals):
-    """Acoustically-correct average of SPL values: convert to energy, mean,
-    back to dB. A 60 & 70 dB pair -> ~67.4 dB, not 65."""
-    a = np.asarray(vals, dtype=float)
-    return float(10.0 * np.log10(np.mean(np.power(10.0, a / 10.0))))
-
-
-@app.post("/api/coord/parse")
-def coord_parse():
-    """Parse ONE meter's log (CSV/TSV/.xls/.xlsx) and return its dB series as
-    JSON for the comparison UI — nothing is stored yet."""
-    if "file" not in request.files:
-        return jsonify(ok=False, error="no file"), 400
-    f = request.files["file"]
-    tzname = request.form.get("tz") or "UTC"
-    try:
-        tz = ZoneInfo(tzname)
-    except Exception:  # noqa: BLE001
-        tz = timezone.utc
-
-    rows, err = _rows_from_upload(f.filename, f.read())
-    if err:
-        return jsonify(ok=False, error=err), 422
-    records, meta, perr = _parse_noise_series(rows, tz)
-    if perr:
-        msg, extra = perr
-        return jsonify(ok=False, error=msg, **extra), 422
-    records.sort(key=lambda r: r["ts"])
-    series = [{"ts": r["ts"].replace(tzinfo=timezone.utc).isoformat(),
-               "db": r["spl"], "max": r["lamax"]} for r in records]
-    return jsonify(ok=True, filename=f.filename, count=len(series),
-                   columns=meta["columns"], skipped=meta["skipped"],
-                   series=series)
-
-
-def _series_to_sec_map(series, offset_sec=0.0):
-    """{integer-epoch-second -> dB} for a [{ts,db}] series, shifted by
-    offset_sec. Later samples in the same second win (rare at 1 Hz)."""
-    out = {}
-    for p in series:
-        db_v = p.get("db")
-        if db_v is None:
-            continue
-        t = dtparser.parse(p["ts"]).timestamp() + offset_sec
-        out[int(round(t))] = float(db_v)
-    return out
-
-
-@app.post("/api/coord/commit")
-def coord_commit():
-    """Store two aligned meter series + an averaged series as Noise sources.
-    Body: {offset_sec, avg_method, names:{tas,dsl,avg}, tas:[{ts,db}], dsl:[...]}.
-    DSL timestamps are shifted by offset_sec (the tone-alignment lag). Re-committing
-    the same source names replaces their rows so imports stay idempotent."""
-    j = request.get_json(silent=True)
-    if not j:
-        return jsonify(ok=False, error="bad json"), 400
-    offset = float(j.get("offset_sec") or 0.0)
-    method = (j.get("avg_method") or "energy").lower()
-    names = j.get("names") or {}
-    n_tas = str(names.get("tas") or "TAS")[:48]
-    n_dsl = str(names.get("dsl") or "DSL")[:48]
-    n_avg = str(names.get("avg") or "AVG")[:48]
-
-    tas_map = _series_to_sec_map(j.get("tas") or [], 0.0)
-    dsl_map = _series_to_sec_map(j.get("dsl") or [], offset)   # DSL shifted onto TAS's clock
-    if not tas_map and not dsl_map:
-        return jsonify(ok=False, error="no samples in either series"), 400
-
-    # Combined series on the 1-second union grid: average whatever is present
-    # that second (energy or arithmetic); a lone value passes through unchanged.
-    avg_map = {}
-    for sec in set(tas_map) | set(dsl_map):
-        vals = [m[sec] for m in (tas_map, dsl_map) if sec in m]
-        avg_map[sec] = (_energy_avg_db(vals) if method == "energy"
-                        else float(np.mean(vals)))
-
-    # Replace any prior rows for these source names (idempotent re-import).
-    for name in {n_tas, n_dsl, n_avg}:
-        Noise.query.filter_by(source=name).delete()
-
-    def add_rows(name, secmap):
-        for sec, val in secmap.items():
-            dt = datetime.fromtimestamp(sec, timezone.utc).replace(tzinfo=None)
-            db.session.add(Noise(source=name, ts=dt, spl_db=round(val, 2)))
-        return len(secmap)
-
-    counts = {n_tas: add_rows(n_tas, tas_map),
-              n_dsl: add_rows(n_dsl, dsl_map),
-              n_avg: add_rows(n_avg, avg_map)}
-    db.session.commit()
-
-    allsecs = set(tas_map) | set(dsl_map)
-    rng = ([datetime.fromtimestamp(min(allsecs), timezone.utc).isoformat(),
-            datetime.fromtimestamp(max(allsecs), timezone.utc).isoformat()]
-           if allsecs else [None, None])
-    return jsonify(ok=True, offset_sec=offset, avg_method=method,
-                   sources=counts, range=rng)
-
-
-@app.get("/compare")
-def compare_view():
-    return render_template("compare.html")
 
 
 # --- Aggregation: multi-night heatmap --------------------------------------

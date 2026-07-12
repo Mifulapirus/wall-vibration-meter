@@ -18,7 +18,7 @@ const enc = encodeURIComponent;
 // Noise sources are plotted with app-wide consistent colours (matching /compare
 // and the dashboard). The vibration SNR trace is violet here so it doesn't clash
 // with DSL's orange on the shared timeline.
-const NOISE_COLORS = { TAS: '#35a9ff', DSL: '#ff8a1e', Average: '#21c07a' };
+const NOISE_COLORS = { DSL: '#ff8a1e' };   // known colours; other sources get a fallback
 const NOISE_FALLBACK = ['#4dd0e1', '#e879f9', '#ff6f91', '#9ccc65'];
 const VIB_COL = '#b98cff';
 let noiseColor = {};   // source -> css colour
@@ -27,9 +27,9 @@ function selectedSources() {
   const box = el('sources');
   return box ? [...box.querySelectorAll('input:checked')].map(i => i.value) : [];
 }
-// The source whose stats/heatmap represent the night — the combined Average when
-// it's shown, else the first selected source.
-function primarySource() { const s = selectedSources(); return s.includes('Average') ? 'Average' : (s[0] || ''); }
+// The source whose stats/heatmap represent the night — DSL (the connected meter)
+// when it's shown, else the first selected source.
+function primarySource() { const s = selectedSources(); return s.includes('DSL') ? 'DSL' : (s[0] || ''); }
 
 function renderSourcePicks(names) {
   const box = el('sources');
@@ -156,9 +156,9 @@ async function drawTimeline() {
     noiseBySrc = Object.fromEntries(noiseArrs);
     vib = vibArr;
   } catch (e) { setStatus('error — ' + e.message, 'err'); return; }
-  // Primary source drives the WHO shading + night stats: the combined Average
-  // when shown, else the first selected source.
-  const primary = srcs.includes('Average') ? 'Average' : srcs[0];
+  // Primary source drives the WHO shading + night stats: DSL (the connected
+  // meter) when shown, else the first selected source.
+  const primary = srcs.includes('DSL') ? 'DSL' : srcs[0];
   const noise = primary ? (noiseBySrc[primary] || []) : [];
   const anyNoise = Object.values(noiseBySrc).some(a => a.length);
 
@@ -271,22 +271,20 @@ async function drawTimeline() {
   setStatus('live', 'ok');
 }
 
-// Fused sound+vibration metrics for this night (server /api/fusion): the
-// compressor's dBA contribution and the C−A low-frequency indicator — things a
-// single sensor can't give. Appended to the night's stat tiles.
+// Fused sound+vibration metrics for this night (server /api/fusion) from the
+// single DSL meter: the compressor's on-vs-off dB contribution and its duty
+// cycle — correlating the vibration compressor detector with the sound level.
 async function addFusionTiles(start, end, dev) {
   try {
     const q = `from=${enc(start.toISOString())}&to=${enc(end.toISOString())}` +
-              `${dev ? `&device=${enc(dev)}` : ''}&asource=TAS&csource=DSL`;
+              `${dev ? `&device=${enc(dev)}` : ''}&asource=DSL&csource=DSL`;
     const d = await fetch(`/api/fusion?${q}`).then(r => r.json());
-    const A = d.sound && d.sound.TAS, lf = d.lowfreq, comp = d.compressor;
+    const S = d.sound && d.sound.DSL, comp = d.compressor;
     const extra = [];
     if (comp && comp.duty_pct != null)
       extra.push(stat('AC duty', Math.round(comp.duty_pct) + '%', comp.duty_pct > 50 ? 'z3' : comp.duty_pct > 0 ? 'z1' : 'z0'));
-    if (A && A.delta_leq != null)
-      extra.push(stat('AC adds (A)', '+' + A.delta_leq.toFixed(1) + ' dB', A.delta_leq >= 6 ? 'z2' : 'z0'));
-    if (lf && lf.ca_median != null)   // both meters are dBC → this is a calibration/placement gap, not weighting
-      extra.push(stat('Meter gap', '±' + Math.round(lf.ca_median) + ' dB', lf.ca_median >= 15 ? 'z3' : lf.ca_median >= 8 ? 'z1' : 'z0'));
+    if (S && S.delta_leq != null)
+      extra.push(stat('AC adds (dBC)', '+' + S.delta_leq.toFixed(1) + ' dB', S.delta_leq >= 6 ? 'z2' : 'z0'));
     if (extra.length) el('nightStats').insertAdjacentHTML('beforeend', extra.join(''));
   } catch (e) { /* fusion is best-effort; night tiles already rendered */ }
 }

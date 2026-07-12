@@ -116,7 +116,7 @@ async function refreshTiles() {
     const [d, live, snd] = await Promise.all([
       fetch('/api/latest?device=' + dev, { cache: 'no-store' }).then(r => r.json()),
       fetch('/api/live/' + dev, { cache: 'no-store' }).then(r => r.json()),
-      fetch('/api/noise/latest?source=Average', { cache: 'no-store' }).then(r => r.json()).catch(() => ({})),
+      fetch('/api/noise/latest?source=DSL', { cache: 'no-store' }).then(r => r.json()).catch(() => ({})),
     ]);
     updateTiles(d);
     updateSoundTile(snd);
@@ -137,7 +137,7 @@ async function refreshTiles() {
   }
 }
 
-// Live average sound level tile — newest pushed dB reading (source "Average").
+// Live sound level tile — newest pushed dB reading from the DSL meter.
 function updateSoundTile(n) {
   const span = el('soundAvg'), tile = el('soundTile');
   if (!span || !tile) return;

@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""Push live sound-meter readings from this PC to the Capek-web server.
+"""Push live DSL sound-meter readings from this PC to the Capek-web server.
 
-The meters are USB-connected to this machine; the website runs elsewhere. This
-agent samples both meters and POSTs batches to the server's /api/noise/live
-endpoint, where they land as ordinary Noise "sources" (TAS / DSL / AVG) and show
-up in the existing dashboard, sleep, and heatmap views — no file import.
+The meter is USB-connected to this machine; the website runs elsewhere. This
+agent samples the DSL meter and POSTs batches to the server's /api/noise/live
+endpoint, where they land as an ordinary Noise "source" (DSL) and show up in the
+existing dashboard, sleep, and heatmap views — no file import.
 
 Readings are buffered locally and retried, so a brief network/server outage
-doesn't lose data. Both meters share this PC's clock, so no tone-alignment is
-needed (unlike the /compare file-import path); AVG is a per-second energy average.
+doesn't lose data.
 
 Usage:
     python tools/meter_agent.py --server https://capek.example.dev --token SECRET
-    python tools/meter_agent.py --server http://localhost:5006 --no-avg
+    python tools/meter_agent.py --server http://localhost:5006
 
 Requires: pip install hidapi   (server URL/token via flags or env SERVER_URL/INGEST_TOKEN)
 """
@@ -56,10 +55,7 @@ def main():
     ap.add_argument("--interval", type=float, default=1.0, help="seconds between samples")
     ap.add_argument("--flush", type=float, default=5.0, help="seconds between server pushes")
     ap.add_argument("--duration", type=float, default=None, help="stop after N seconds")
-    ap.add_argument("--meters", default="tas,dsl", help="comma list: tas,dsl")
-    ap.add_argument("--names", default="TAS,DSL,Average",
-                    help="source names for tas,dsl,avg (comma-separated)")
-    ap.add_argument("--no-avg", action="store_true", help="do not push the energy-averaged source")
+    ap.add_argument("--name", default="DSL", help="Noise source name to store readings under")
     ap.add_argument("--max-buffer", type=int, default=100000, help="max buffered readings when offline")
     ap.add_argument("--insecure", action="store_true", help="skip TLS certificate verification")
     ap.add_argument("--csv", help="also append readings to this CSV locally")
@@ -71,24 +67,14 @@ def main():
         sys.exit("--server (or env SERVER_URL) is required")
     url = args.server.rstrip("/") + "/api/noise/live"
 
-    parts = [p.strip() for p in args.names.split(",")]
-    n_tas = parts[0] if len(parts) > 0 and parts[0] else "TAS"
-    n_dsl = parts[1] if len(parts) > 1 and parts[1] else "DSL"
-    n_avg = parts[2] if len(parts) > 2 and parts[2] else "AVG"
-
-    want = {m.strip().lower() for m in args.meters.split(",")}
+    sname = args.name.strip() or "DSL"
     meters = []
-    for spec, reader, key, sname in ((ml.TAS, ml.read_tas, "tas", n_tas),
-                                     (ml.DSL, ml.read_dsl, "dsl", n_dsl)):
-        if key not in want:
-            continue
-        h = ml.open_meter(spec)
-        if h:
-            meters.append((sname, h, reader))
-            print(f"# {spec['name']} -> source '{sname}'", file=sys.stderr)
-        else:
-            hint = " (close SoundLab first)" if key == "dsl" else ""
-            print(f"# {spec['name']} NOT available{hint}", file=sys.stderr)
+    h = ml.open_meter(ml.DSL)
+    if h:
+        meters.append((sname, h, ml.read_dsl))
+        print(f"# {ml.DSL['name']} -> source '{sname}'", file=sys.stderr)
+    else:
+        print(f"# {ml.DSL['name']} NOT available (close SoundLab first)", file=sys.stderr)
     if not meters:
         sys.exit("No meters available.")
     print(f"# pushing to {url}" + (" (token set)" if args.token else " (no token)"), file=sys.stderr)
@@ -115,10 +101,6 @@ def main():
                 buffer.append(item)
                 if csv_fh:
                     csv_fh.write(f"{ts},{sname},{r['dB']}\n")
-            # Per-second energy average across whichever meters reported.
-            if not args.no_avg and len(present) >= 2:
-                buffer.append({"source": n_avg, "ts": ts,
-                               "spl_db": round(ml.energy_avg_db(list(present.values())), 2)})
             if csv_fh:
                 csv_fh.flush()
 

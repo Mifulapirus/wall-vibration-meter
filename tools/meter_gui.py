@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Little desktop app to stream the two USB sound meters to Capek-web.
+"""Little desktop app to stream the DSL USB sound meter to Capek-web.
 
-Double-click "Start Meter Stream.vbs" (same folder) to launch. Shows live
-readings for both meters + the energy-averaged value, with a Start/Stop button.
-Readings are buffered and retried, so a brief network blip loses nothing.
+Double-click "Start Meter Stream.vbs" (same folder) to launch. Shows the live
+DSL reading with a Start/Stop button. Readings are buffered and retried, so a
+brief network blip loses nothing.
 
 Protocols/agent internals: METER_PROTOCOLS.md, meterlib.py, meter_agent.py.
 """
@@ -15,13 +15,12 @@ import time
 import tkinter as tk
 import urllib.request
 from datetime import datetime, timezone
-from tkinter import ttk
 
 import meterlib as ml
 
 SERVER_DEFAULT = "https://wallvibe.thehomelab.dev"
-NAMES = ("TAS", "DSL", "Average")   # tas, dsl, avg source names (match built-in chart colors)
-INTERVAL = 0.3     # ~3 Hz — matches the meters' FAST response so compressor kick-on transients show
+SOURCE = "DSL"     # Noise source name readings are stored under
+INTERVAL = 0.3     # ~3 Hz — matches the meter's FAST response so compressor kick-on transients show
 FLUSH = 2.0        # seconds between server pushes
 
 BG = "#0f1720"; CARD = "#1b2733"; FG = "#e6edf3"; MUTE = "#8b98a5"
@@ -52,8 +51,7 @@ class Streamer(threading.Thread):
         self.stop = threading.Event()
         self.lock = threading.Lock()
         self.state = {
-            "TAS": None, "DSL": None, "AVG": None,
-            "tas_temp": None, "dsl_info": "", "tas_ok": False, "dsl_ok": False,
+            "DSL": None, "dsl_info": "", "dsl_ok": False,
             "sent": 0, "buffered": 0, "status": "starting…", "status_kind": "warn",
         }
 
@@ -66,63 +64,36 @@ class Streamer(threading.Thread):
             return dict(self.state)
 
     def run(self):
-        handles = {"tas": None, "dsl": None}
+        handle = None
         buffer = collections.deque(maxlen=500000)
         last_flush = 0.0
         last_open_try = 0.0
 
         def ensure_open():
-            nonlocal last_open_try
-            if time.time() - last_open_try < 3.0:
+            nonlocal handle, last_open_try
+            if handle is not None or time.time() - last_open_try < 3.0:
                 return
             last_open_try = time.time()
-            if handles["tas"] is None:
-                handles["tas"] = ml.open_meter(ml.TAS)
-            if handles["dsl"] is None:
-                handles["dsl"] = ml.open_meter(ml.DSL)
+            handle = ml.open_meter(ml.DSL)
 
         while not self.stop.is_set():
             tick = time.time()
             ensure_open()
             ts = iso_now()
-            present = {}
 
-            # TAS
-            tas_ok = False; tas_temp = None
-            if handles["tas"] is not None:
+            dsl_ok = False; dsl_info = ""; dsl_db = None
+            if handle is not None:
                 try:
-                    r = ml.read_tas(handles["tas"])
+                    r = ml.read_dsl(handle)
                 except OSError:
-                    try: handles["tas"].close()
+                    try: handle.close()
                     except Exception: pass
-                    handles["tas"] = None; r = None
+                    handle = None; r = None
                 if r:
-                    tas_ok = True; tas_temp = r["tempC"]
-                    present[NAMES[0]] = r["dB"]
-                    buffer.append({"source": NAMES[0], "ts": ts, "spl_db": round(r["dB"], 2)})
+                    dsl_ok = True; dsl_info = f"{r['weighting']} · {r['mode']}"; dsl_db = r["dB"]
+                    buffer.append({"source": SOURCE, "ts": ts, "spl_db": round(r["dB"], 2)})
 
-            # DSL
-            dsl_ok = False; dsl_info = ""
-            if handles["dsl"] is not None:
-                try:
-                    r = ml.read_dsl(handles["dsl"])
-                except OSError:
-                    try: handles["dsl"].close()
-                    except Exception: pass
-                    handles["dsl"] = None; r = None
-                if r:
-                    dsl_ok = True; dsl_info = f"{r['weighting']} · {r['mode']}"
-                    present[NAMES[1]] = r["dB"]
-                    buffer.append({"source": NAMES[1], "ts": ts, "spl_db": round(r["dB"], 2)})
-
-            avg = None
-            if len(present) >= 2:
-                avg = ml.energy_avg_db(list(present.values()))
-                buffer.append({"source": NAMES[2], "ts": ts, "spl_db": round(avg, 2)})
-
-            self._set(TAS=present.get(NAMES[0]), DSL=present.get(NAMES[1]), AVG=avg,
-                      tas_temp=tas_temp, dsl_info=dsl_info,
-                      tas_ok=tas_ok, dsl_ok=dsl_ok, buffered=len(buffer))
+            self._set(DSL=dsl_db, dsl_info=dsl_info, dsl_ok=dsl_ok, buffered=len(buffer))
 
             # Flush to server on cadence.
             if buffer and time.time() - last_flush >= FLUSH:
@@ -140,8 +111,8 @@ class Streamer(threading.Thread):
                               status_kind="bad", buffered=len(buffer))
                 last_flush = time.time()
 
-            if not handles["tas"] and not handles["dsl"]:
-                self._set(status="no meters found — check USB / close SoundLab for DSL",
+            if handle is None:
+                self._set(status="no meter found — check USB / close SoundLab",
                           status_kind="bad")
 
             self.stop.wait(max(0.0, INTERVAL - (time.time() - tick)))
@@ -152,19 +123,18 @@ class Streamer(threading.Thread):
                 post_batch(self.url, "", list(buffer))
             except Exception:  # noqa: BLE001
                 pass
-        for h in handles.values():
-            if h:
-                try: h.close()
-                except Exception: pass
+        if handle:
+            try: handle.close()
+            except Exception: pass
 
 
 class App(tk.Tk):
     def __init__(self, autostart=False):
         super().__init__()
-        self.title("Wall Vibe — Live Sound Meters")
+        self.title("Wall Vibe — Live DSL Sound Meter")
         self.configure(bg=BG)
-        self.geometry("560x360")
-        self.minsize(520, 340)
+        self.geometry("460x340")
+        self.minsize(420, 320)
         self.worker = None
 
         tk.Label(self, text="Live Sound-Meter Stream", bg=BG, fg=FG,
@@ -181,19 +151,16 @@ class App(tk.Tk):
         self.server_entry.pack(side="left", ipady=3)
 
         cards = tk.Frame(self, bg=BG); cards.pack(pady=8, fill="x", padx=16)
-        self.cards = {}
-        for i, (key, label) in enumerate([("TAS", "TAS"), ("DSL", "DSL"), ("AVG", "AVG")]):
-            c = tk.Frame(cards, bg=CARD); c.grid(row=0, column=i, padx=6, sticky="nsew")
-            cards.grid_columnconfigure(i, weight=1)
-            dot = tk.Label(c, text="●", bg=CARD, fg=MUTE, font=("Segoe UI", 10))
-            dot.pack(anchor="e", padx=8, pady=(6, 0))
-            tk.Label(c, text=label, bg=CARD, fg=MUTE, font=("Segoe UI Semibold", 11)).pack()
-            val = tk.Label(c, text="--.-", bg=CARD, fg=FG, font=("Segoe UI", 30, "bold"))
-            val.pack()
-            tk.Label(c, text="dB", bg=CARD, fg=MUTE, font=("Segoe UI", 9)).pack()
-            info = tk.Label(c, text=" ", bg=CARD, fg=MUTE, font=("Segoe UI", 9))
-            info.pack(pady=(0, 8))
-            self.cards[key] = (val, info, dot)
+        cards.grid_columnconfigure(0, weight=1)
+        c = tk.Frame(cards, bg=CARD); c.grid(row=0, column=0, padx=6, sticky="nsew")
+        self.dot = tk.Label(c, text="●", bg=CARD, fg=MUTE, font=("Segoe UI", 10))
+        self.dot.pack(anchor="e", padx=8, pady=(6, 0))
+        tk.Label(c, text="DSL", bg=CARD, fg=MUTE, font=("Segoe UI Semibold", 11)).pack()
+        self.val = tk.Label(c, text="--.-", bg=CARD, fg=FG, font=("Segoe UI", 44, "bold"))
+        self.val.pack()
+        tk.Label(c, text="dB", bg=CARD, fg=MUTE, font=("Segoe UI", 9)).pack()
+        self.info = tk.Label(c, text=" ", bg=CARD, fg=MUTE, font=("Segoe UI", 9))
+        self.info.pack(pady=(0, 8))
 
         self.btn = tk.Button(self, text="▶  Start", command=self.toggle,
                              bg=ACCENT, fg="white", activebackground="#4c8ef7",
@@ -221,31 +188,16 @@ class App(tk.Tk):
             self.btn.config(text="▶  Start", bg=ACCENT, activebackground="#4c8ef7")
             self.server_entry.config(state="normal")
             self.sub.config(text="stopped — press Start to resume")
-            for key in self.cards:
-                v, info, dot = self.cards[key]
-                v.config(text="--.-"); info.config(text=" "); dot.config(fg=MUTE)
+            self.val.config(text="--.-"); self.info.config(text=" "); self.dot.config(fg=MUTE)
             self.status.config(text="idle", fg=MUTE)
 
     def refresh(self):
         if self.worker is not None:
             s = self.worker.snapshot()
-            for key, temp_key, ok_key in (("TAS", "tas_temp", "tas_ok"),
-                                          ("DSL", "dsl_info", "dsl_ok"),
-                                          ("AVG", None, None)):
-                v, info, dot = self.cards[key]
-                val = s.get(key)
-                v.config(text=f"{val:.1f}" if val is not None else "--.-")
-                if key == "TAS":
-                    t = s.get("tas_temp")
-                    info.config(text=f"{t:.1f} °C" if t is not None else " ")
-                    dot.config(fg=OK if s.get("tas_ok") else BAD)
-                elif key == "DSL":
-                    info.config(text=s.get("dsl_info") or " ")
-                    dot.config(fg=OK if s.get("dsl_ok") else BAD)
-                else:
-                    both = s.get("tas_ok") and s.get("dsl_ok")
-                    info.config(text="energy avg" if both else "needs both")
-                    dot.config(fg=OK if both else MUTE)
+            val = s.get("DSL")
+            self.val.config(text=f"{val:.1f}" if val is not None else "--.-")
+            self.info.config(text=s.get("dsl_info") or " ")
+            self.dot.config(fg=OK if s.get("dsl_ok") else BAD)
             kind = s.get("status_kind", "warn")
             self.status.config(text=f"{s.get('status','')}   ·   sent {s.get('sent',0)}   ·   "
                                     f"buffered {s.get('buffered',0)}",
