@@ -29,16 +29,45 @@ function soundLike(db) {
   return best[1];
 }
 
+// Recorded eS528L nights (the trustworthy A-weighted anchor), newest first.
+let nightsCache = [];
+function nightLabel(s) {
+  const d0 = new Date(s.first), d1 = new Date(s.last);
+  const dt = d0.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const t0 = d0.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const t1 = d1.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return `${dt} · ${t0}–${t1}`;
+}
+function populateNights() {
+  const sel = el('night'), cur = sel.value;
+  sel.innerHTML = '';
+  nightsCache.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.source; o.textContent = nightLabel(s);
+    sel.appendChild(o);
+  });
+  const liveOpt = document.createElement('option');
+  liveOpt.value = 'live'; liveOpt.textContent = 'live sample';
+  sel.appendChild(liveOpt);
+  if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+  else sel.value = nightsCache.length ? nightsCache[0].source : 'live';   // default: newest night
+  el('window').style.display = sel.value === 'live' ? '' : 'none';        // window only matters for live
+}
+
 async function load() {
   let srcs = [];
   try { srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
-  const night = srcs.find(s => s.source === 'eS528L-night');
+  // Any eS528L recorded night (legacy `eS528L-night` or dated `eS528L-YYYY-MM-DD`).
+  nightsCache = srcs.filter(s => /^eS528L-/.test(s.source) && s.count > 100)
+                    .sort((a, b) => (a.last < b.last ? 1 : -1));
+  populateNights();
+  const chosen = nightsCache.find(s => s.source === el('night').value);
   let d, anchor, live = false;
   try {
-    if (night) {
-      anchor = 'eS528L-night';
-      d = await fetch(`/api/fusion?from=${enc(night.first)}&to=${enc(night.last)}` +
-                      `&asource=eS528L-night&csource=DSL&handling_db=${HANDLING}`, { cache: 'no-store' }).then(r => r.json());
+    if (chosen) {
+      anchor = chosen.source;
+      d = await fetch(`/api/fusion?from=${enc(chosen.first)}&to=${enc(chosen.last)}` +
+                      `&asource=${enc(anchor)}&csource=DSL&handling_db=${HANDLING}`, { cache: 'no-store' }).then(r => r.json());
     } else {
       anchor = 'DSL'; live = true;
       d = await fetch(`/api/fusion?hours=${el('window').value}&asource=DSL&csource=DSL`, { cache: 'no-store' }).then(r => r.json());
@@ -60,12 +89,12 @@ async function load() {
     if (laeq > WHO_NIGHT) { sev = 'poor'; label = 'Not appropriate for sleep'; }
     else if (laeq > WHO_BED) { sev = 'marginal'; label = 'Marginal for sleep'; }
   }
-  const nightLabel = live ? 'live sample'
+  const nightText = live ? 'live sample'
     : 'night of ' + new Date(d.window.from).toLocaleDateString([], { month: 'short', day: 'numeric' });
 
   el('verdict').className = 'verdict ' + sev;
   el('verdict').innerHTML =
-    `<div class="badge2">Sleep environment, ${sev}, ${nightLabel}</div><h2>${label}</h2>` +
+    `<div class="badge2">Sleep environment, ${sev}, ${nightText}</div><h2>${label}</h2>` +
     `<ul>` +
     `<li>The rooftop air conditioning compressor cycled on <b>${surges} times</b> during the ${span}-hour night, about once every <b>${everyMin} minutes</b>.</li>` +
     `<li>Each activation added a low-frequency surge of about <b>+${f1(C.delta_leq)} dBC</b>, comparable to a truck idling outside the window.</li>` +
@@ -218,6 +247,7 @@ function drawOnBar(d) {
   ctx.fillText('red = compressor running (loud), green = quiet', 0, 6);
 }
 
+el('night').addEventListener('change', load);
 el('window').addEventListener('change', load);
 window.addEventListener('resize', () => load());
 load();
