@@ -1190,6 +1190,11 @@ def report_view():
     return render_template("report.html")
 
 
+@app.get("/lowfreq")
+def lowfreq_view():
+    return render_template("lowfreq.html")
+
+
 # --- Maintenance -----------------------------------------------------------
 def prune_loop():
     while RETENTION_DAYS > 0:
