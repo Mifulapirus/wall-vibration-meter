@@ -63,15 +63,17 @@ async function load() {
     if (la != null && lc != null) ca = lc - la;
   } catch (e) {}
 
-  // (2) Per-night: compressor on/off deltas (LF excess) + tonal content.
-  let d = null, units = [], spectra = [];
+  // (2) Per-night: compressor on/off deltas (LF excess) + tonal content + the
+  //     recorded sound-level trace across the night.
+  let d = null, units = [], spectra = [], readings = [];
   if (chosen) {
     const win = `from=${enc(chosen.first)}&to=${enc(chosen.last)}`;
     try { d = await fetch(`/api/fusion?${win}&asource=${enc(chosen.source)}&csource=DSL&handling_db=65`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
     try { units = await fetch(`/api/units?${win}&limit=8000`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
     try { spectra = await fetch(`/api/spectra?${win}&limit=250`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
+    try { readings = await fetch(`/api/noise?source=${enc(chosen.source)}&${win}&limit=20000`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
   }
-  render({ chosen, la, lc, ca, d, units, spectra });
+  render({ chosen, la, lc, ca, d, units, spectra, readings });
 }
 
 function unitStat(units, key) {
@@ -81,7 +83,7 @@ function unitStat(units, key) {
   return { median: v[Math.floor(v.length / 2)], peak: v[v.length - 1] };
 }
 
-function render({ chosen, la, lc, ca, d, units, spectra }) {
+function render({ chosen, la, lc, ca, d, units, spectra, readings }) {
   const A = (d && d.sound && d.sound[chosen && chosen.source]) || {};
   const C = (d && d.sound && d.sound.DSL) || {};
   const comp = (d && d.compressor) || {};
@@ -117,6 +119,11 @@ function render({ chosen, la, lc, ca, d, units, spectra }) {
     (strongest ? card(f1(strongest[1].peak), 'mg', `Strongest wall line (~${strongest[0]} Hz)`, 'peak vibration amplitude') : '') +
     (lc != null ? card(f0(lc), 'dBC', 'Full-spectrum level', 'C-weighted (includes low frequency)') : '');
 
+  drawNightLevels('nightLevels', {
+    readings: readings || [], onIntervals: comp.on_intervals || [],
+    from: (d && d.window && d.window.from) || (chosen && chosen.first),
+    to: (d && d.window && d.window.to) || (chosen && chosen.last), unit: 'dBA',
+  });
   drawCA(la, lc);
   drawSpectrum(spectra);
 

@@ -1,0 +1,14 @@
+{# Shared navbar — single source of truth for page navigation.
+   Included by every page's <header>; the active link is derived from request.path. #}
+<nav class="mainnav">
+  {%- for href, label in [
+    ('/',        'Dashboard'),
+    ('/live',    'Live'),
+    ('/sleep',   'Sleep'),
+    ('/mount',   'Mount'),
+    ('/report',  '📋 Report'),
+    ('/lowfreq', '〰️ Low-freq'),
+  ] %}
+  <a href="{{ href }}" class="{{ 'active' if request.path == href }}">{{ label }}</a>
+  {%- endfor %}
+</nav>

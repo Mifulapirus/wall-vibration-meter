@@ -12,12 +12,8 @@
 <body>
   <header>
     <h1>Wall Vibration <span class="dim">history</span></h1>
+    {% include "_navbar.html" %}
     <div class="controls">
-      <a class="link" href="/live">live →</a>
-      <a class="navbtn" href="/report">📋 Report</a>
-      <a class="navbtn" href="/lowfreq">〰️ Low-freq</a>
-      <a class="link" href="/mount">mount helper →</a>
-      <a class="link" href="/sleep">sleep view →</a>
       <select id="device" title="Device"></select>
       <span id="fwBadge" class="fwbadge" title="Device firmware version"></span>
       <button id="sessionBtn" class="sesbtn" title="Pause logging while you handle/mount the device">⏸ Pause</button>

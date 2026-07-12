@@ -34,9 +34,8 @@
 <body>
   <header>
     <h1>Wall Vibration <span class="dim">habitability report</span></h1>
+    {% include "_navbar.html" %}
     <div class="controls">
-      <a class="link" href="/">← dashboard</a>
-      <a class="navbtn" href="/lowfreq">〰️ Low-freq report</a>
       <select id="night" title="Recorded night (eS528L)"></select>
       <select id="window" title="Window (live sample only)">
         <option value="4">last 4 h</option>
@@ -50,6 +49,11 @@
     <div id="verdict" class="verdict"><div class="badge2">…</div><h2>Analyzing…</h2></div>
 
     <div class="cards" id="cards"></div>
+
+    <section class="sec">
+      <h3>Sound level through the night <span class="dim">— recorded readings; green = AC compressor running</span></h3>
+      <canvas id="nightLevels" width="1000" height="210" style="width:100%;height:auto;display:block"></canvas>
+    </section>
 
     <section class="sec">
       <h3>What these levels sound like <span class="dim">(reference for non-technical readers)</span></h3>
@@ -82,6 +86,7 @@
     <footer id="meta"></footer>
   </main>
 
+  <script src="/static/nightchart.js"></script>
   <script src="/static/report.js"></script>
 </body>
 </html>

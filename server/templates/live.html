@@ -28,9 +28,8 @@
 <body>
   <header>
     <h1>Wall Vibration <span class="dim">live</span></h1>
+    {% include "_navbar.html" %}
     <div class="controls">
-      <a class="link" href="/">← dashboard</a>
-      <a class="link" href="/sleep">sleep view →</a>
       <span id="liveState" class="status"><span class="livedot off"></span>connecting…</span>
       <select id="window" title="Rolling window">
         <option value="1">1 min</option>

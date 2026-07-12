@@ -110,6 +110,19 @@ async function load() {
     card(f0(comp.duty_pct), '%', 'AC duty cycle', `running up to ${f0(comp.longest_on_min)} min at a time`) +
     card(f1(laeq), 'dBA', 'Night average', `like a window AC left running in the room, all night`);
 
+  // Recorded sound level across the whole night (the raw readings).
+  let nightReadings = [];
+  try {
+    const rq = chosen
+      ? `source=${enc(chosen.source)}&from=${enc(chosen.first)}&to=${enc(chosen.last)}&limit=20000`
+      : `source=DSL&hours=${el('window').value}&limit=20000`;
+    nightReadings = await fetch(`/api/noise?${rq}`, { cache: 'no-store' }).then(r => r.json());
+  } catch (e) {}
+  drawNightLevels('nightLevels', {
+    readings: nightReadings, onIntervals: comp.on_intervals || [],
+    from: d.window.from, to: d.window.to, unit: live ? 'dBC' : 'dBA',
+  });
+
   drawOnBar(d);
   drawScale(laeq, A.lmax);
   drawLfBars(A.delta_leq, C.delta_leq);
