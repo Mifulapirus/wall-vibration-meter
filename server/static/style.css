@@ -10,9 +10,11 @@ body { margin: 0; background: var(--bg); color: var(--text);
 .dim { color: var(--muted); font-weight: 400; }
 
 header { display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+  flex-wrap: wrap; gap: 10px 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
 header h1 { font-size: 18px; margin: 0; font-weight: 600; }
-.controls { display: flex; align-items: center; gap: 10px; }
+/* Page-specific controls strip, rendered by base.html below the shared header. */
+.controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 10px 20px; border-bottom: 1px solid var(--line); }
 select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
   border-radius: 8px; padding: 6px 10px; font-size: 14px; }
 .status { font-size: 13px; color: var(--muted); }
@@ -49,6 +51,7 @@ select { background: var(--panel); color: var(--text); border: 1px solid var(--l
 @media (max-width: 640px) { .bignum { font-size: 60px; } .ministats { grid-template-columns: repeat(2, 1fr); } }
 
 main { max-width: 1040px; margin: 0 auto; padding: 20px; }
+main.rep { max-width: 900px; padding: 24px; }   /* report pages (/report, /lowfreq) */
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
 @media (max-width: 680px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px;

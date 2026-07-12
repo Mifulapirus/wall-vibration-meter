@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Wall Vibration{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/style.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {# The header (title + navbar) is owned here — pages never render their own. #}
+  <header>
+    <h1>{% block heading %}{% endblock %}</h1>
+    {% include "_navbar.html" %}
+  </header>
+
+  <div class="controls">
+    {% block controls %}{% endblock %}
+  </div>
+
+  <main class="{% block mainclass %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

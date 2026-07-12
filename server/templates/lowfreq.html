@@ -1,13 +1,10 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Low-Frequency Noise Report</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+
+{% block title %}Low-Frequency Noise Report{% endblock %}
+{% block heading %}Low-Frequency Noise <span class="dim">report</span>{% endblock %}
+
+{% block head %}
   <style>
-    .rep { max-width: 900px; margin: 0 auto; padding: 24px; }
     .verdict { border-radius: 14px; padding: 20px 24px; margin-bottom: 22px; border: 1px solid var(--line); }
     .verdict .badge2 { font-size: 13px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
     .verdict h2 { margin: 6px 0 10px; font-size: 26px; }
@@ -31,17 +28,15 @@
     .assume { font-size: 12px; color: var(--muted); line-height: 1.5; }
     canvas.chart { width: 100%; height: auto; display: block; }
   </style>
-</head>
-<body>
-  <header>
-    <h1>Low-Frequency Noise <span class="dim">report</span></h1>
-    {% include "_navbar.html" %}
-    <div class="controls">
-      <select id="night" title="Recorded night (eS528L)"></select>
-    </div>
-  </header>
+{% endblock %}
 
-  <main class="rep">
+{% block controls %}
+  <select id="night" title="Recorded night (eS528L)"></select>
+{% endblock %}
+
+{% block mainclass %}rep{% endblock %}
+
+{% block content %}
     <div id="verdict" class="verdict"><div class="badge2">…</div><h2>Analyzing…</h2></div>
 
     <div class="cards" id="cards"></div>
@@ -79,9 +74,9 @@
     </section>
 
     <footer id="meta"></footer>
-  </main>
+{% endblock %}
 
+{% block scripts %}
   <script src="/static/nightchart.js"></script>
   <script src="/static/lowfreq.js"></script>
-</body>
-</html>
+{% endblock %}

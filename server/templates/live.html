@@ -1,12 +1,9 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wall Vibration — Live</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="icon" href="/static/favicon.ico" sizes="any">
-  <link rel="stylesheet" href="/static/style.css">
+{% extends "base.html" %}
+
+{% block title %}Wall Vibration — Live{% endblock %}
+{% block heading %}Wall Vibration <span class="dim">live</span>{% endblock %}
+
+{% block head %}
   <style>
     .live-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
     @media (max-width: 720px) { .live-grid { grid-template-columns: 1fr; } }
@@ -24,23 +21,19 @@
     .livedot.off { background: var(--muted); animation: none; }
     @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(33,192,122,.5);} 70% { box-shadow: 0 0 0 7px rgba(33,192,122,0);} 100% { box-shadow: 0 0 0 0 rgba(33,192,122,0);} }
   </style>
-</head>
-<body>
-  <header>
-    <h1>Wall Vibration <span class="dim">live</span></h1>
-    {% include "_navbar.html" %}
-    <div class="controls">
-      <span id="liveState" class="status"><span class="livedot off"></span>connecting…</span>
-      <select id="window" title="Rolling window">
-        <option value="1">1 min</option>
-        <option value="5">5 min</option>
-        <option value="10" selected>10 min</option>
-        <option value="30">30 min</option>
-      </select>
-    </div>
-  </header>
+{% endblock %}
 
-  <main>
+{% block controls %}
+  <span id="liveState" class="status"><span class="livedot off"></span>connecting…</span>
+  <select id="window" title="Rolling window">
+    <option value="1">1 min</option>
+    <option value="5">5 min</option>
+    <option value="10" selected>10 min</option>
+    <option value="30">30 min</option>
+  </select>
+{% endblock %}
+
+{% block content %}
     <section class="live-grid" id="cards"></section>
 
     <section class="panel">
@@ -49,8 +42,8 @@
     </section>
 
     <footer id="meta">—</footer>
-  </main>
+{% endblock %}
 
+{% block scripts %}
   <script src="/static/live.js"></script>
-</body>
-</html>
+{% endblock %}

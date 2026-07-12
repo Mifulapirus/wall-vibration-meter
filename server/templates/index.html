@@ -1,39 +1,28 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wall Vibration — History</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="icon" href="/static/favicon.ico" sizes="any">
-  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-  <header>
-    <h1>Wall Vibration <span class="dim">history</span></h1>
-    {% include "_navbar.html" %}
-    <div class="controls">
-      <select id="device" title="Device"></select>
-      <span id="fwBadge" class="fwbadge" title="Device firmware version"></span>
-      <button id="sessionBtn" class="sesbtn" title="Pause logging while you handle/mount the device">⏸ Pause</button>
-      <span id="pausedBadge" class="paused-ind" style="display:none">● PAUSED — not logging</span>
-      <select id="range" title="Time range">
-        <!-- Populated by app.js (populateRanges); kept here for no-JS fallback. -->
-        <option value="0.016666666666666666">1 min</option>
-        <option value="0.08333333333333333">5 min</option>
-        <option value="0.16666666666666666">10 min</option>
-        <option value="1">1 h</option>
-        <option value="6">6 h</option>
-        <option value="24" selected>24 h</option>
-        <option value="168">7 d</option>
-        <option value="720">30 d</option>
-      </select>
-      <span id="status" class="status">…</span>
-    </div>
-  </header>
+{% extends "base.html" %}
 
-  <main>
+{% block title %}Wall Vibration — History{% endblock %}
+{% block heading %}Wall Vibration <span class="dim">history</span>{% endblock %}
+
+{% block controls %}
+  <select id="device" title="Device"></select>
+  <span id="fwBadge" class="fwbadge" title="Device firmware version"></span>
+  <button id="sessionBtn" class="sesbtn" title="Pause logging while you handle/mount the device">⏸ Pause</button>
+  <span id="pausedBadge" class="paused-ind" style="display:none">● PAUSED — not logging</span>
+  <select id="range" title="Time range">
+    <!-- Populated by app.js (populateRanges); kept here for no-JS fallback. -->
+    <option value="0.016666666666666666">1 min</option>
+    <option value="0.08333333333333333">5 min</option>
+    <option value="0.16666666666666666">10 min</option>
+    <option value="1">1 h</option>
+    <option value="6">6 h</option>
+    <option value="24" selected>24 h</option>
+    <option value="168">7 d</option>
+    <option value="720">30 d</option>
+  </select>
+  <span id="status" class="status">…</span>
+{% endblock %}
+
+{% block content %}
     <section class="tiles">
       <div class="tile" id="velTile">
         <div class="value"><span id="vel">--</span><small>mg</small></div>
@@ -99,8 +88,8 @@
     </section>
 
     <footer id="meta">—</footer>
-  </main>
+{% endblock %}
 
+{% block scripts %}
   <script src="/static/app.js"></script>
-</body>
-</html>
+{% endblock %}
