@@ -48,7 +48,7 @@ const card = (n, unit, label, hint, color) =>
 async function load() {
   let srcs = [];
   try { srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
-  nightsCache = srcs.filter(s => /^eS528L-/.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? 1 : -1));
+  nightsCache = srcs.filter(s => /^eS528L-(night|\d{4})/.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? 1 : -1));
   populateNights();
   const chosen = nightsCache.find(s => s.source === el('night').value);
 

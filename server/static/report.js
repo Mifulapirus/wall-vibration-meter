@@ -57,8 +57,9 @@ function populateNights() {
 async function load() {
   let srcs = [];
   try { srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
-  // Any eS528L recorded night (legacy `eS528L-night` or dated `eS528L-YYYY-MM-DD`).
-  nightsCache = srcs.filter(s => /^eS528L-/.test(s.source) && s.count > 100)
+  // A-weighted recorded night: legacy `eS528L-night` or dated `eS528L-YYYY-MM-DD`.
+  // Excludes C-weighted references like `eS528L-C-YYYY-MM-DD` (not a WHO-dBA anchor).
+  nightsCache = srcs.filter(s => /^eS528L-(night|\d{4})/.test(s.source) && s.count > 100)
                     .sort((a, b) => (a.last < b.last ? 1 : -1));
   populateNights();
   const chosen = nightsCache.find(s => s.source === el('night').value);
