@@ -175,54 +175,151 @@ async function refreshCharts() {
 }
 
 // --- Imported noise (dB) overlay ------------------------------------------
-// Any dB sources imported via /compare or /sleep (e.g. TAS, DSL, Average) are
-// drawn on their own panel over the SAME time window as the vibration charts, so
-// sound and wall-vibration read together. The panel hides itself when no sources
-// exist yet.
-const NOISE_COLORS = { TAS: '#35a9ff', DSL: '#ff8a1e', Average: '#21c07a' };
-const NOISE_FALLBACK = ['#c77dff', '#ffd24a', '#4dd0e1', '#ff6f91', '#9ccc65'];
+// Any dB sources imported via /compare or /sleep are drawn on their own panel
+// over the SAME time window as the vibration charts, so sound and wall-vibration
+// read together. The panel hides itself when no sources exist yet.
+//
+// Every night/capture is imported as its OWN source (<METER>[-A|-C]-<YYYY-MM-DD>),
+// so the source list grows forever and listing them all made the legend unusable.
+// The legend therefore names only the sources that actually have readings inside
+// the window on screen, labelled by what was measured rather than by the import
+// batch. That also means we only fetch the sources that can possibly show.
+const NOISE_FAMILY_COLORS = {   // stable per meter, so a meter keeps its colour
+  eS528L: '#35a9ff',            // the calibrated reference
+  DSL: '#ff8a1e',
+  TAS: '#c77dff',
+  WD: '#ff6f91',
+  Average: '#21c07a',
+};
+const NOISE_FALLBACK = ['#ffd24a', '#4dd0e1', '#9ccc65', '#b39ddb'];
+const NOISE_METER_NAMES = { WD: 'Washer / dryer', 'DSL-out': 'DSL (long run)', 'eS528L-night': 'eS528L' };
 const DB_SLEEP = 30, DB_EVENT = 45;   // WHO bedroom guidance (indoor)
+
+// Named events annotated on the chart. `match` derives the span from the
+// first/last of the sources it matches (the capture IS the event); `from`/`to`
+// (local wall-clock) pins an event that has no source of its own.
+const NOISE_EVENTS = [
+  { label: 'Washer / dryer', match: /^WD-/ },
+  { label: 'Water pump', from: '2026-07-16T06:40:00', to: '2026-07-16T07:30:00' },
+];
+
 let noiseVisible = {};   // source -> bool
 let noiseColor = {};     // source -> css color
 let noiseData = {};      // source -> [{ts, spl_db}] over the current window
+let noiseSources = [];   // [{source, count, first, last}] from the API
 let vibBounds = null;    // [t0, t1] from the vibration rows, for x-axis sync
 
+// <METER>[-A|-C]-<YYYY-MM-DD>, tolerating legacy names with neither part.
+function parseNoiseSource(n) {
+  const m = /^(.+?)(?:-([AC]))?(?:-(\d{4}-\d{2}-\d{2}))?$/.exec(n) || [];
+  return { meter: m[1] || n, weighting: m[2] || null, date: m[3] || null };
+}
+
+function noiseLabel(n) {
+  const { meter, weighting } = parseNoiseSource(n);
+  // Plain eS528L is dBA by naming convention (C nights are tagged -C-).
+  const w = weighting || (meter.split('-')[0] === 'eS528L' ? 'A' : null);
+  const nice = NOISE_METER_NAMES[meter] || meter;
+  return w ? `${nice} (dB${w})` : nice;
+}
+
+// Two captures of the same meter+weighting can land in one window (e.g. a live
+// stream and an imported night); disambiguate those by date so the legend never
+// shows the same text twice.
+function noiseLabels(names) {
+  const base = Object.fromEntries(names.map(n => [n, noiseLabel(n)]));
+  const seen = {};
+  names.forEach(n => { seen[base[n]] = (seen[base[n]] || 0) + 1; });
+  return Object.fromEntries(names.map(n => {
+    const d = parseNoiseSource(n).date;
+    if (seen[base[n]] === 1) return [n, base[n]];
+    return [n, d ? `${base[n]} ${d}` : n];   // no date to add? fall back to the raw name
+  }));
+}
+
 async function loadNoiseSources() {
-  let srcs = [];
-  try { srcs = await fetch('/api/noise/sources').then(r => r.json()); } catch (e) { return; }
-  if (!srcs.length) { el('noisePanel').style.display = 'none'; return; }
-  el('noisePanel').style.display = '';
-  const leg = el('noiseLegend'); leg.innerHTML = '';
-  srcs.map(s => s.source).forEach((n, i) => {
+  try { noiseSources = await fetch('/api/noise/sources').then(r => r.json()); } catch (e) { return; }
+  el('noisePanel').style.display = noiseSources.length ? '' : 'none';
+}
+
+// Window currently on screen: the vibration bounds when we have them (so the
+// panels line up), else the selected hours back from now.
+function noiseWindow() {
+  if (vibBounds) return vibBounds;
+  const t1 = Date.now();
+  return [t1 - (parseFloat(el('range').value) || 24) * 3600e3, t1];
+}
+
+function buildNoiseLegend(names) {
+  const leg = el('noiseLegend'); if (!leg) return;
+  leg.innerHTML = '';
+  if (!names.length) {
+    leg.innerHTML = '<span class="dim">no dB readings in this window</span>';
+    return;
+  }
+  const labels = noiseLabels(names);
+  const used = new Set();
+  names.forEach((n, i) => {
     if (!(n in noiseVisible)) noiseVisible[n] = true;
-    noiseColor[n] = NOISE_COLORS[n] || NOISE_FALLBACK[i % NOISE_FALLBACK.length];
+    const base = parseNoiseSource(n).meter.split('-')[0];
+    let c = NOISE_FAMILY_COLORS[base];
+    if (!c || used.has(c)) c = NOISE_FALLBACK[i % NOISE_FALLBACK.length];
+    used.add(c); noiseColor[n] = c;
+
+    const src = noiseSources.find(s => s.source === n) || {};
     const span = document.createElement('span');
     span.className = 'legtoggle'; span.style.cursor = 'pointer'; span.style.userSelect = 'none';
-    span.style.opacity = noiseVisible[n] ? '1' : '0.4';
-    span.style.textDecoration = noiseVisible[n] ? 'none' : 'line-through';
-    span.innerHTML = `<i class="sw" style="background:${noiseColor[n]}"></i> ${n}`;
-    span.addEventListener('click', () => {
-      noiseVisible[n] = !noiseVisible[n];
+    span.title = `${n}${src.count ? ` — ${src.count.toLocaleString()} readings` : ''}`;
+    span.innerHTML = `<i class="sw" style="background:${c}"></i> ${labels[n]}`;
+    const paint = () => {
       span.style.opacity = noiseVisible[n] ? '1' : '0.4';
       span.style.textDecoration = noiseVisible[n] ? 'none' : 'line-through';
-      drawNoise();
-    });
+    };
+    paint();
+    span.addEventListener('click', () => { noiseVisible[n] = !noiseVisible[n]; paint(); drawNoise(); });
     leg.appendChild(span);
   });
+  const hint = document.createElement('span');
+  hint.className = 'dim'; hint.style.marginLeft = '6px'; hint.textContent = '(click to show/hide)';
+  leg.appendChild(hint);
 }
 
 async function refreshNoise() {
-  const names = Object.keys(noiseColor);
-  if (!names.length || el('noisePanel').style.display === 'none') return;
-  // Match the vibration window exactly when we have it, else fall back to hours.
-  const win = vibBounds
-    ? `from=${enc(new Date(vibBounds[0]).toISOString())}&to=${enc(new Date(vibBounds[1]).toISOString())}`
-    : `hours=${el('range').value}`;
-  const got = await Promise.all(names.map(n =>
+  if (!noiseSources.length || el('noisePanel').style.display === 'none') return;
+  const [w0, w1] = noiseWindow();
+  // Only sources whose recorded span overlaps the window can draw anything —
+  // skip fetching the rest (there is one source per night, and they add up).
+  const cands = noiseSources
+    .filter(s => Date.parse(s.last) >= w0 && Date.parse(s.first) <= w1)
+    .map(s => s.source);
+  const win = `from=${enc(new Date(w0).toISOString())}&to=${enc(new Date(w1).toISOString())}`;
+  const got = await Promise.all(cands.map(n =>
     fetch(`/api/noise?source=${enc(n)}&${win}`, { cache: 'no-store' })
       .then(r => r.json()).then(d => [n, d]).catch(() => [n, []])));
-  noiseData = Object.fromEntries(got);
+  noiseData = Object.fromEntries(got.filter(([, d]) => d && d.length));
+  buildNoiseLegend(Object.keys(noiseData));
   drawNoise();
+}
+
+// Concrete [start, end] for each named event that overlaps the window. A matched
+// event yields one span PER capture, never a union: the washer's dBA and dBC
+// files are different clock windows, and spanning them would invent noise across
+// the gap between them.
+function noiseEventSpans(t0, t1) {
+  const spans = NOISE_EVENTS.flatMap(ev => ev.match
+    ? noiseSources.filter(s => ev.match.test(s.source))
+        .map(s => ({ label: ev.label, a: Date.parse(s.first), b: Date.parse(s.last) }))
+    : [{ label: ev.label, a: Date.parse(ev.from), b: Date.parse(ev.to) }]);
+  // But DO merge captures of the same event that overlap (e.g. simultaneous dBA
+  // + dBC of one run), so a single real event draws a single band.
+  spans.sort((p, q) => p.label === q.label ? p.a - q.a : (p.label < q.label ? -1 : 1));
+  const merged = [];
+  spans.forEach(s => {
+    const last = merged[merged.length - 1];
+    if (last && last.label === s.label && s.a <= last.b) last.b = Math.max(last.b, s.b);
+    else merged.push({ ...s });
+  });
+  return merged.filter(e => e.b >= t0 && e.a <= t1);
 }
 const enc = encodeURIComponent;
 
@@ -259,6 +356,19 @@ function drawNoise() {
     flush(xOf(t1));
   }
 
+  // Named events (washer/dryer, water pump…) as labelled bands, so a spike has
+  // an explanation on the chart instead of only in the legend.
+  const events = noiseEventSpans(t0, t1);
+  events.forEach(ev => {
+    const xa = Math.max(pad, xOf(Math.max(ev.a, t0)));
+    const xb = Math.min(W - 10, xOf(Math.min(ev.b, t1)));
+    ctx.fillStyle = 'rgba(199,125,255,0.15)';
+    ctx.fillRect(xa, 10, Math.max(2, xb - xa), H - pad - 10);
+    ctx.strokeStyle = 'rgba(199,125,255,0.75)'; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(xa, 10); ctx.lineTo(xa, H - pad); ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
   drawTimeAxis(ctx, W, H, pad, t0, t1);
   ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui';
   for (let v = dbMin; v <= dbMax; v += 10) ctx.fillText(v + ' dB', 2, yOf(v) + 3);
@@ -280,6 +390,14 @@ function drawNoise() {
       started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true;
     });
     ctx.stroke();
+  });
+
+  // Event labels last, so the traces don't draw over them.
+  ctx.font = '10px system-ui'; ctx.fillStyle = '#d9b3ff';
+  events.forEach(ev => {
+    const xa = Math.max(pad, xOf(Math.max(ev.a, t0)));
+    const w = ctx.measureText(ev.label).width;
+    ctx.fillText(ev.label, Math.min(xa + 3, W - 10 - w), 20);
   });
 }
 
