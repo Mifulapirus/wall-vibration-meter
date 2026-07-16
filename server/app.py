@@ -1195,6 +1195,11 @@ def lowfreq_view():
     return render_template("lowfreq.html")
 
 
+@app.get("/washer")
+def washer_view():
+    return render_template("washer.html")
+
+
 # --- Maintenance -----------------------------------------------------------
 def prune_loop():
     while RETENTION_DAYS > 0:
