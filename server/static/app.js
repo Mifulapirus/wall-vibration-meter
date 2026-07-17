@@ -199,7 +199,8 @@ const DB_SLEEP = 30, DB_EVENT = 45;   // WHO bedroom guidance (indoor)
 // first/last of the sources it matches (the capture IS the event); `from`/`to`
 // (local wall-clock) pins an event that has no source of its own.
 const NOISE_EVENTS = [
-  { label: 'Washer / dryer', match: /^WD-/ },
+  // WD-… is one run per day; WD1-/WD2-… are numbered runs when a day has several.
+  { label: 'Washer / dryer', match: /^WD\d*-/ },
   { label: 'Water pump', from: '2026-07-16T06:40:00', to: '2026-07-16T07:30:00' },
 ];
 
