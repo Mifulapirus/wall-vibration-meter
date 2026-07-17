@@ -56,8 +56,8 @@ async function load() {
   let la = null, lc = null, ca = null;
   try {
     const [a, c] = await Promise.all([
-      fetch('/api/noise?source=DSL-A&hours=999999&limit=20000', { cache: 'no-store' }).then(r => r.json()),
-      fetch('/api/noise?source=DSL-C&hours=999999&limit=20000', { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/noise?source=DSL-LF-A&hours=999999&limit=20000', { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/noise?source=DSL-LF-C&hours=999999&limit=20000', { cache: 'no-store' }).then(r => r.json()),
     ]);
     la = leqOf(a); lc = leqOf(c);
     if (la != null && lc != null) ca = lc - la;
@@ -68,7 +68,7 @@ async function load() {
   let d = null, units = [], spectra = [], readings = [];
   if (chosen) {
     const win = `from=${enc(chosen.first)}&to=${enc(chosen.last)}`;
-    try { d = await fetch(`/api/fusion?${win}&asource=${enc(chosen.source)}&csource=DSL&handling_db=65`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
+    try { d = await fetch(`/api/fusion?${win}&asource=${enc(chosen.source)}&csource=DSL-C&handling_db=65`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
     try { units = await fetch(`/api/units?${win}&limit=8000`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
     try { spectra = await fetch(`/api/spectra?${win}&limit=250`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
     try { readings = await fetch(`/api/noise?source=${enc(chosen.source)}&${win}&limit=20000`, { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
@@ -152,7 +152,7 @@ function render({ chosen, la, lc, ca, d, units, spectra, readings }) {
     `The C-minus-A difference is measured on a single sound-level meter switched between the A and C weightings, so any calibration offset cancels in the difference (the absolute levels are not relied on). The tonal content is the wall vibration measured by an accelerometer on the bedroom wall, analysed by frequency; the compressor's on/off state is detected independently from that vibration. Handling noise (entering/leaving the room) is excluded. Levels above are indicative; a formal case would add a one-third-octave low-frequency measurement against the DIN 45680 curve.`;
 
   el('meta').textContent = (chosen ? `${chosen.source} · ${new Date(chosen.first).toLocaleString()} → ${new Date(chosen.last).toLocaleString()} · ` : '') +
-    `C-A reference: DSL-A/DSL-C same-meter capture`;
+    `C-A reference: DSL-LF-A/DSL-LF-C same-meter capture`;
 }
 
 // ---- C vs A bars (same meter) ---------------------------------------------

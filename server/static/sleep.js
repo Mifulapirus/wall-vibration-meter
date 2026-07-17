@@ -29,7 +29,7 @@ function selectedSources() {
 }
 // The source whose stats/heatmap represent the night — DSL (the connected meter)
 // when it's shown, else the first selected source.
-function primarySource() { const s = selectedSources(); return s.includes('DSL') ? 'DSL' : (s[0] || ''); }
+function primarySource() { const s = selectedSources(); return s.find(x => x.startsWith('DSL-')) || s[0] || ''; }
 
 function renderSourcePicks(names) {
   const box = el('sources');
@@ -158,7 +158,7 @@ async function drawTimeline() {
   } catch (e) { setStatus('error — ' + e.message, 'err'); return; }
   // Primary source drives the WHO shading + night stats: DSL (the connected
   // meter) when shown, else the first selected source.
-  const primary = srcs.includes('DSL') ? 'DSL' : srcs[0];
+  const primary = srcs.find(x => x.startsWith('DSL-')) || srcs[0];
   const noise = primary ? (noiseBySrc[primary] || []) : [];
   const anyNoise = Object.values(noiseBySrc).some(a => a.length);
 
@@ -277,7 +277,7 @@ async function drawTimeline() {
 async function addFusionTiles(start, end, dev) {
   try {
     const q = `from=${enc(start.toISOString())}&to=${enc(end.toISOString())}` +
-              `${dev ? `&device=${enc(dev)}` : ''}&asource=DSL&csource=DSL`;
+              `${dev ? `&device=${enc(dev)}` : ''}&asource=DSL-A&csource=DSL-C`;
     const d = await fetch(`/api/fusion?${q}`).then(r => r.json());
     const S = d.sound && d.sound.DSL, comp = d.compressor;
     const extra = [];

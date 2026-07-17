@@ -68,10 +68,10 @@ async function load() {
     if (chosen) {
       anchor = chosen.source;
       d = await fetch(`/api/fusion?from=${enc(chosen.first)}&to=${enc(chosen.last)}` +
-                      `&asource=${enc(anchor)}&csource=DSL&handling_db=${HANDLING}`, { cache: 'no-store' }).then(r => r.json());
+                      `&asource=${enc(anchor)}&csource=DSL-C&handling_db=${HANDLING}`, { cache: 'no-store' }).then(r => r.json());
     } else {
-      anchor = 'DSL'; live = true;
-      d = await fetch(`/api/fusion?hours=${el('window').value}&asource=DSL&csource=DSL`, { cache: 'no-store' }).then(r => r.json());
+      anchor = 'DSL-A'; live = true;
+      d = await fetch(`/api/fusion?hours=${el('window').value}&asource=DSL-A&csource=DSL-C`, { cache: 'no-store' }).then(r => r.json());
     }
   } catch (e) { el('verdict').innerHTML = `<h2>Could not load: ${e.message}</h2>`; return; }
 
@@ -116,7 +116,7 @@ async function load() {
   try {
     const rq = chosen
       ? `source=${enc(chosen.source)}&from=${enc(chosen.first)}&to=${enc(chosen.last)}&limit=20000`
-      : `source=DSL&hours=${el('window').value}&limit=20000`;
+      : `source=DSL-A&hours=${el('window').value}&limit=20000`;
     nightReadings = await fetch(`/api/noise?${rq}`, { cache: 'no-store' }).then(r => r.json());
   } catch (e) {}
   drawNightLevels('nightLevels', {
@@ -172,8 +172,8 @@ async function load() {
 async function loadLF() {
   try {
     const [a, c] = await Promise.all([
-      fetch('/api/noise?source=DSL-A&hours=999&limit=20000', { cache: 'no-store' }).then(r => r.json()),
-      fetch('/api/noise?source=DSL-C&hours=999&limit=20000', { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/noise?source=DSL-LF-A&hours=999&limit=20000', { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/noise?source=DSL-LF-C&hours=999&limit=20000', { cache: 'no-store' }).then(r => r.json()),
     ]);
     if (!a.length || !c.length) return;
     const leq = (arr) => 10 * Math.log10(arr.reduce((s, p) => s + Math.pow(10, p.spl_db / 10), 0) / arr.length);

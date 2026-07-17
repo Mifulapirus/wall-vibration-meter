@@ -2,8 +2,11 @@
 // current numbers + a rolling chart. Data is pushed by tools/meter_agent.py /
 // meter_gui.py from the PC the USB meters are plugged into.
 
+// The agent stores by the meter's current weighting, so both appear here and
+// whichever one is streaming shows as live.
 const SOURCES = [
-  { name: 'DSL', color: '#ff8a1e' },
+  { name: 'DSL-C', color: '#ff8a1e' },
+  { name: 'DSL-A', color: '#4dd0e1' },
 ];
 const FRESH_S = 6;          // a source is "live" if its newest sample is within this many seconds
 const el = (id) => document.getElementById(id);

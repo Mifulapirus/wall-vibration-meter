@@ -3,8 +3,15 @@
 
 The meter is USB-connected to this machine; the website runs elsewhere. This
 agent samples the DSL meter and POSTs batches to the server's /api/noise/live
-endpoint, where they land as an ordinary Noise "source" (DSL) and show up in the
+endpoint, where they land as ordinary Noise "sources" and show up in the
 existing dashboard, sleep, and heatmap views — no file import.
+
+The meter reports its own weighting on every read, so readings are stored under
+a weighting-suffixed source (DSL-A / DSL-C) rather than a bare "DSL". A dBA and
+a dBC reading are different physical quantities — mixing them in one source
+silently corrupts anything that assumes a weighting (the report's C-weighted
+low-frequency indicator, the WHO dBA comparison). Flipping the meter's A/C
+button mid-run simply routes subsequent readings to the other source.
 
 Readings are buffered locally and retried, so a brief network/server outage
 doesn't lose data.
@@ -55,7 +62,8 @@ def main():
     ap.add_argument("--interval", type=float, default=1.0, help="seconds between samples")
     ap.add_argument("--flush", type=float, default=5.0, help="seconds between server pushes")
     ap.add_argument("--duration", type=float, default=None, help="stop after N seconds")
-    ap.add_argument("--name", default="DSL", help="Noise source name to store readings under")
+    ap.add_argument("--name", default="DSL",
+                    help="Base Noise source name; the meter's weighting is appended (DSL-A / DSL-C)")
     ap.add_argument("--max-buffer", type=int, default=100000, help="max buffered readings when offline")
     ap.add_argument("--insecure", action="store_true", help="skip TLS certificate verification")
     ap.add_argument("--csv", help="also append readings to this CSV locally")
@@ -72,7 +80,8 @@ def main():
     h = ml.open_meter(ml.DSL)
     if h:
         meters.append((sname, h, ml.read_dsl))
-        print(f"# {ml.DSL['name']} -> source '{sname}'", file=sys.stderr)
+        print(f"# {ml.DSL['name']} -> source '{sname}-<A|C>' (weighting read from the meter)",
+              file=sys.stderr)
     else:
         print(f"# {ml.DSL['name']} NOT available (close SoundLab first)", file=sys.stderr)
     if not meters:
@@ -96,11 +105,16 @@ def main():
                 r = reader(h)
                 if not r:
                     continue
-                present[sname] = r["dB"]
-                item = {"source": sname, "ts": ts, "spl_db": round(r["dB"], 2)}
+                # Store under the weighting the meter reports right now, so dBA and
+                # dBC never land in the same source (and toggling A/C mid-run just
+                # switches which source fills).
+                w = r.get("weighting")
+                src = f"{sname}-{w}" if w in ("A", "C") else sname
+                present[src] = r["dB"]
+                item = {"source": src, "ts": ts, "spl_db": round(r["dB"], 2)}
                 buffer.append(item)
                 if csv_fh:
-                    csv_fh.write(f"{ts},{sname},{r['dB']}\n")
+                    csv_fh.write(f"{ts},{src},{r['dB']}\n")
             if csv_fh:
                 csv_fh.flush()
 

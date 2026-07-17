@@ -758,12 +758,20 @@ def noise_live():
 
 @app.get("/api/noise/latest")
 def noise_latest():
-    """Newest dB reading for a source (default 'DSL') — for the dashboard's
-    live sound-level tile."""
+    """Newest dB reading for a source — for the dashboard's live sound-level tile.
+
+    `prefix` matches a family of sources instead of one exact name: the live
+    meter streams into a weighting-suffixed source (DSL-A / DSL-C) that changes
+    when the meter's A/C button is flipped, so the tile asks for `prefix=DSL-`
+    and gets whichever of them is actually streaming right now."""
     q = Noise.query
-    src = request.args.get("source", "DSL")
-    if src:
-        q = q.filter_by(source=src)
+    pref = request.args.get("prefix")
+    if pref:
+        q = q.filter(Noise.source.like(pref.replace("%", "") + "%"))
+    else:
+        src = request.args.get("source", "DSL")
+        if src:
+            q = q.filter_by(source=src)
     r = q.order_by(Noise.ts.desc()).first()
     return jsonify(r.as_dict() if r else {})
 
