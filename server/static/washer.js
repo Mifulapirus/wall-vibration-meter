@@ -1,13 +1,48 @@
-// Washer & Dryer Noise Report — extracts and annotates the extremely loud
-// in-unit laundry noise captured on 2026-07-15 (calibrated eS528L in dBA plus
-// the DSL in dBC), separate from the normal AC monitoring. Vanilla canvas.
+// Washer & Dryer Noise Report — the extremely loud in-unit laundry noise,
+// separate from the normal AC monitoring. Vanilla canvas.
+//
+// Every laundry run is imported as its own pair of Noise sources:
+//     WD<run?>[-DSL]-<A|C>-<YYYY-MM-DD>
+// where the -DSL- infix marks the UNCALIBRATED meter and its absence means the
+// calibrated eS528L (Type 2). <run> numbers multiple runs on one day.
+//
+// Which meter carries which weighting is NOT fixed: on 2026-07-15 the eS528L was
+// on A and the DSL on C; on 2026-07-16 that inverted. So nothing here may assume
+// "calibrated ⇒ dBA" — the weighting is read from the source name, and the
+// dBA-only benchmarks (a normal 55 dBA washer, the OSHA/NIOSH 85 dBA line, the
+// everyday-loudness comparisons) are shown ONLY when the calibrated meter really
+// was A-weighted. Otherwise this report would attribute numbers to the wrong
+// instrument and weighting.
 
 const el = (id) => document.getElementById(id);
 const enc = encodeURIComponent;
 const f1 = (x) => (x == null || isNaN(x) ? 'n/a' : (+x).toFixed(1));
 const f0 = (x) => (x == null || isNaN(x) ? 'n/a' : Math.round(+x));
-const SRC_A = 'WD-A-2026-07-15';   // eS528L, dBA (afternoon)
-const SRC_C = 'WD-C-2026-07-15';   // DSL, dBC (into the evening)
+
+const RUN_RE = /^WD(\d*)(-DSL)?-([AC])-(\d{4}-\d{2}-\d{2})$/;
+
+// Group the WD* sources into runs: { key, date, no, cal:{src,w}, dsl:{src,w} }.
+function groupRuns(sources) {
+  const runs = new Map();
+  for (const s of sources) {
+    const m = RUN_RE.exec(s.source);
+    if (!m) continue;
+    const [, no, isDsl, w, date] = m;
+    const key = `${date}#${no || '0'}`;
+    if (!runs.has(key)) runs.set(key, { key, date, no, cal: null, dsl: null, last: s.last });
+    const r = runs.get(key);
+    r[isDsl ? 'dsl' : 'cal'] = { src: s.source, w, n: s.count, first: s.first, last: s.last };
+    if (s.last > r.last) r.last = s.last;
+  }
+  return [...runs.values()].sort((a, b) => (a.last < b.last ? 1 : -1));   // newest first
+}
+const runLabel = (r) => {
+  const d = new Date(r.date + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return r.no ? `${d} · run ${r.no}` : d;
+};
+const meterName = (kind) => (kind === 'cal' ? 'calibrated eS528L (Type 2)' : 'DSL (uncalibrated)');
+
+let gRuns = [], gRun = null;
 
 const leqOf = (v) => v.length ? 10 * Math.log10(v.reduce((s, x) => s + Math.pow(10, x / 10), 0) / v.length) : null;
 function fmtDur(sec) {
@@ -42,55 +77,108 @@ const card = (n, unit, label, hint, color) =>
   `<div class="l">${label}</div>${hint ? `<div class="h">${hint}</div>` : ''}</div>`;
 
 async function load() {
-  let a = { pts: [] }, c = { pts: [] };
+  if (!gRun) return;
+  const want = [gRun.cal, gRun.dsl];
+  let got;
   try {
-    const [ra, rc] = await Promise.all([
-      fetch(`/api/noise?source=${enc(SRC_A)}&hours=0&limit=40000`, { cache: 'no-store' }).then(r => r.json()),
-      fetch(`/api/noise?source=${enc(SRC_C)}&hours=0&limit=40000`, { cache: 'no-store' }).then(r => r.json()),
-    ]);
-    a = analyze(ra); c = analyze(rc);
+    got = await Promise.all(want.map(s => s
+      ? fetch(`/api/noise?source=${enc(s.src)}&hours=0&limit=40000`, { cache: 'no-store' }).then(r => r.json())
+      : Promise.resolve([])));
   } catch (e) { el('verdict').innerHTML = `<h2>Could not load: ${e.message}</h2>`; return; }
+  const a = analyze(got[0]), c = analyze(got[1]);
+  const aw = gRun.cal ? gRun.cal.w : null;     // weighting of the calibrated meter
+  const cw = gRun.dsl ? gRun.dsl.w : null;     // weighting of the DSL
+  const aU = aw ? 'dB' + aw : '';
+  const cU = cw ? 'dB' + cw : '';
+  // The everyday-loudness and 55 dBA / 85 dBA benchmarks are defined for
+  // A-weighting only; quoting them against a dBC number would overstate the
+  // level by the C-A difference (~17 dB in this room).
+  const aIsA = aw === 'A';
 
   const dt = (ms) => new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
   const tm = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const span = (x) => (x.from ? `${dt(x.from)} · ${tm(x.from)}–${tm(x.to)}` : '');
 
   el('verdict').className = 'verdict poor';
   el('verdict').innerHTML =
-    `<div class="badge2">In-unit appliance noise, excessive, ${a.from ? dt(a.from) : ''}</div>` +
+    `<div class="badge2">In-unit appliance noise, excessive, ${a.from ? dt(a.from) : (c.from ? dt(c.from) : '')}</div>` +
     `<h2>The washer &amp; dryer are grossly over the level of a normal home appliance</h2>` +
     `<ul>` +
-    `<li>During operation the in-unit washer/dryer reached a peak of <b>${f1(a.peak)} dBA</b> — about as loud as <b>${soundLike(a.peak)}</b> — inside the apartment.</li>` +
-    `<li>It held a sustained average of <b>${f1(a.leq)} dBA</b> and stayed above <b>80 dBA</b> for <b>${fmtDur(a.over80)}</b> and above <b>90 dBA</b> for <b>${fmtDur(a.over90)}</b>.</li>` +
-    `<li>A normal washing machine runs around <b>55 dBA</b>; this is roughly <b>${a.peak ? Math.round(Math.pow(2, (a.peak - 55) / 10)) : '?'}&times; as loud</b> at its peak.</li>` +
-    `<li>The noise recurred over the day — captured again into the evening, with repeated bursts to <b>${f1(c.peak)} dBC</b>.</li>` +
+    (a.n ? `<li>During operation the in-unit washer/dryer reached a peak of <b>${f1(a.peak)} ${aU}</b>` +
+      (aIsA ? ` — about as loud as <b>${soundLike(a.peak)}</b> —` : '') +
+      ` inside the apartment, on the ${meterName('cal')}.</li>` +
+      `<li>It held a sustained average of <b>${f1(a.leq)} ${aU}</b>, staying above <b>80 ${aU}</b> for <b>${fmtDur(a.over80)}</b> and above <b>90 ${aU}</b> for <b>${fmtDur(a.over90)}</b>.</li>` : '') +
+    (a.n && aIsA ? `<li>A normal washing machine runs around <b>55 dBA</b>; this is roughly <b>${Math.round(Math.pow(2, (a.peak - 55) / 10))}&times; as loud</b> at its peak.</li>` : '') +
+    (a.n && !aIsA ? `<li>This run was recorded <b>C-weighted (${aU})</b>, so the dBA benchmarks for a normal appliance do not apply to it — the figures above are not comparable to an A-weighted limit.</li>` : '') +
+    (c.n ? `<li>A second meter (${meterName('dsl')}) recorded the same run at a peak of <b>${f1(c.peak)} ${cU}</b>.</li>` : '') +
     `</ul>`;
 
   el('cards').innerHTML =
-    card(f1(a.peak), 'dBA', 'Peak level', soundLike(a.peak), '#ff6b60') +
-    card(f1(a.leq), 'dBA', 'Sustained (Leq)', 'average while running') +
-    card(fmtDur(a.over90), '', 'Time above 90 dBA', 'hearing-hazard range') +
-    card(fmtDur(a.over80), '', 'Time above 80 dBA', 'garbage-disposal loud') +
-    card(fmtDur(a.over70), '', 'Time above 70 dBA', 'louder than a vacuum') +
-    card(f1(c.peak), 'dBC', 'Peak (evening)', 'recurred later the same day');
+    (a.n ? card(f1(a.peak), aU, 'Peak level', aIsA ? soundLike(a.peak) : 'C-weighted — not a dBA figure', '#ff6b60') +
+      card(f1(a.leq), aU, 'Sustained (Leq)', 'average while running') +
+      card(fmtDur(a.over90), '', `Time above 90 ${aU}`, aIsA ? 'hearing-hazard range' : '') +
+      card(fmtDur(a.over80), '', `Time above 80 ${aU}`, aIsA ? 'garbage-disposal loud' : '') +
+      card(fmtDur(a.over70), '', `Time above 70 ${aU}`, aIsA ? 'louder than a vacuum' : '') : '') +
+    (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', 'uncalibrated — reads ~7 dB high') : '');
 
-  el('aTitle').textContent = a.from ? `${dt(a.from)} · ${tm(a.from)}–${tm(a.to)} · calibrated eS528L (Type 2), A-weighted` : '';
-  drawLevels('aChart', a.pts, { unit: 'dBA', loud: 80, peak: a.peak });
-  el('pA').innerHTML =
-    `The trace above is the sound level inside the apartment while the in-unit washer and dryer were running, measured with a calibrated Type&nbsp;2 meter. Rather than the steady low hum of a normal appliance, it repeatedly spikes into the red — peaking at <b>${f1(a.peak)} dBA</b> and averaging <b>${f1(a.leq)} dBA</b> across the cycle. For comparison, the quiet stretches between spikes sat around <b>${f0(a.quietLeq)} dBA</b> (the room's ordinary background). Sustained noise at these levels is in the range that causes hearing strain and makes normal conversation, rest, or sleep impossible in the same space.`;
+  el('aSec').style.display = a.n ? '' : 'none';
+  el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${meterName('cal')}, ${aU})</span>`;
+  el('aTitle').textContent = a.n ? `${span(a)} · ${meterName('cal')}, ${aw}-weighted · ${gRun.cal.src}` : '';
+  drawLevels('aChart', a.pts, { unit: aU, loud: 80, peak: a.peak });
+  el('pA').innerHTML = a.n
+    ? `The trace above is the sound level inside the apartment while the in-unit laundry was running, measured with a calibrated Type&nbsp;2 meter. Rather than the steady low hum of a normal appliance, it repeatedly spikes into the red — peaking at <b>${f1(a.peak)} ${aU}</b> and averaging <b>${f1(a.leq)} ${aU}</b> across the cycle. The quiet stretches between spikes sat around <b>${f0(a.quietLeq)} ${aU}</b> (the room's ordinary background).` +
+      (aIsA ? ` Sustained noise at these levels is in the range that causes hearing strain and makes normal conversation, rest, or sleep impossible in the same space.` : ` Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
+    : '';
 
-  el('cTitle').textContent = c.from ? `${dt(c.from)} · ${tm(c.from)}–${tm(c.to)} · DSL, C-weighted` : '';
-  drawLevels('cChart', c.pts, { unit: 'dBC', loud: 80, peak: c.peak });
-  el('pC').innerHTML =
-    `The same appliances were captured again later the same day. Against a quiet background near <b>${f0(c.quietLeq)} dBC</b> (the ordinary AC hum), the laundry produced repeated loud bursts — <b>${fmtDur(c.over90)}</b> above 90&nbsp;dBC and a peak of <b>${f1(c.peak)} dBC</b>. This is not a one-time event: the excessive appliance noise recurs whenever the machines run.`;
+  el('cSec').style.display = c.n ? '' : 'none';
+  el('cHead').innerHTML = `Second meter <span class="dim">(${meterName('dsl')}, ${cU})</span>`;
+  el('cTitle').textContent = c.n ? `${span(c)} · DSL, ${cw}-weighted · ${gRun.dsl.src}` : '';
+  drawLevels('cChart', c.pts, { unit: cU, loud: 80, peak: c.peak });
+  el('pC').innerHTML = c.n
+    ? `The same run recorded on a second, <b>uncalibrated</b> meter (it reads roughly 7&nbsp;dB high against the calibrated one, so treat its absolute levels as indicative only — its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts — <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
+    : '';
 
-  drawScale(a.peak, a.leq);
-  el('pScale').innerHTML =
-    `A properly working home washing machine measures about <b>55&nbsp;dBA</b> and a dryer about <b>60&nbsp;dBA</b> — quieter than a normal conversation. This unit instead reached <b>${f1(a.peak)} dBA</b> (red marker): <b>${soundLike(a.peak)}</b>. Occupational guidelines (OSHA/NIOSH) flag sustained exposure above <b>85&nbsp;dBA</b> as a hearing hazard; this exceeded that for <b>${fmtDur(a.over85)}</b>. A household appliance producing these levels indoors is malfunctioning or improperly installed, not operating normally.`;
+  // The dB scale is an A-weighted everyday reference; only meaningful for a dBA run.
+  el('scale').style.display = aIsA ? '' : 'none';
+  if (aIsA) {
+    drawScale(a.peak, a.leq);
+    el('pScale').innerHTML =
+      `A properly working home washing machine measures about <b>55&nbsp;dBA</b> and a dryer about <b>60&nbsp;dBA</b> — quieter than a normal conversation. This unit instead reached <b>${f1(a.peak)} dBA</b> (red marker): <b>${soundLike(a.peak)}</b>. Occupational guidelines (OSHA/NIOSH) flag sustained exposure above <b>85&nbsp;dBA</b> as a hearing hazard; this exceeded that for <b>${fmtDur(a.over85)}</b>. A household appliance producing these levels indoors is malfunctioning or improperly installed, not operating normally.`;
+  } else {
+    el('pScale').innerHTML =
+      `The everyday-loudness scale is defined for A-weighted (dBA) levels. This run was recorded <b>C-weighted</b>, so it is deliberately not plotted against it — doing so would overstate the apparent loudness by the C&minus;A difference (about 17&nbsp;dB in this room). See a dBA run for that comparison.`;
+  }
 
   el('pMethod').innerHTML =
-    `Levels are recorded once per second. The A-weighted (dBA) data is from an ennoLogic eS528L Type&nbsp;2 (&plusmn;1.5&nbsp;dB) sound level meter placed in the living area; the C-weighted (dBC) data is from a second meter. "Time above" figures count the seconds at or over each level. Peaks are instantaneous maxima; the sustained (Leq) figure is the energy-average over the running period. Raw time-stamped data is available on request.`;
+    `Levels are recorded once per second. Readings marked <b>${meterName('cal')}</b> come from an ennoLogic eS528L Type&nbsp;2 (&plusmn;1.5&nbsp;dB) sound level meter in the living area; readings marked <b>${meterName('dsl')}</b> come from a second, uncalibrated meter that reads about 7&nbsp;dB high and is used for timing and duration rather than absolute level. <b>The weighting is stated per run</b> (A- or C-weighted) and is not assumed: dBA and dBC are different quantities and are never compared directly. "Time above" figures count the seconds at or over each level. Peaks are instantaneous maxima; the sustained (Leq) figure is the energy-average over the running period. Raw time-stamped data is available on request.`;
 
-  el('meta').textContent = `${SRC_A}: ${a.n} samples · ${SRC_C}: ${c.n} samples`;
+  el('meta').textContent = [gRun.cal && `${gRun.cal.src}: ${a.n} samples`,
+                           gRun.dsl && `${gRun.dsl.src}: ${c.n} samples`].filter(Boolean).join(' · ');
+}
+
+async function boot() {
+  let srcs = [];
+  try { srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json()); }
+  catch (e) { el('verdict').innerHTML = `<h2>Could not load sources: ${e.message}</h2>`; return; }
+  gRuns = groupRuns(srcs);
+  const sel = el('run');
+  sel.innerHTML = '';
+  if (!gRuns.length) {
+    el('verdict').innerHTML = '<h2>No laundry runs imported yet</h2>';
+    return;
+  }
+  gRuns.forEach((r, i) => {
+    const o = document.createElement('option');
+    o.value = r.key; o.textContent = runLabel(r);
+    if (!i) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => {
+    gRun = gRuns.find(r => r.key === sel.value) || gRuns[0];
+    load();
+  });
+  gRun = gRuns[0];
+  await load();
 }
 
 // ---- level-vs-time chart with loud (>threshold) shaded red -----------------
@@ -181,4 +269,4 @@ function drawScale(peak, leq) {
 }
 
 window.addEventListener('resize', () => load());
-load();
+boot();

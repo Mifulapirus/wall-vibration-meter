@@ -28,6 +28,10 @@
   </style>
 {% endblock %}
 
+{% block controls %}
+  <select id="run" title="Laundry run (newest first)"></select>
+{% endblock %}
+
 {% block mainclass %}rep{% endblock %}
 
 {% block content %}
@@ -35,15 +39,15 @@
 
     <div class="cards" id="cards"></div>
 
-    <section class="sec">
-      <h3>Washer/dryer noise — afternoon cycle <span class="dim">(calibrated dBA)</span></h3>
+    <section class="sec" id="aSec">
+      <h3 id="aHead">Washer/dryer noise</h3>
       <div class="subttl" id="aTitle"></div>
       <canvas id="aChart" class="chart" width="1000" height="220"></canvas>
       <p id="pA"></p>
     </section>
 
-    <section class="sec">
-      <h3>The same appliances into the evening <span class="dim">(dBC)</span></h3>
+    <section class="sec" id="cSec">
+      <h3 id="cHead">Second meter</h3>
       <div class="subttl" id="cTitle"></div>
       <canvas id="cChart" class="chart" width="1000" height="220"></canvas>
       <p id="pC"></p>
