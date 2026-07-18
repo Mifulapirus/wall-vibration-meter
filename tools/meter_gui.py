@@ -19,7 +19,11 @@ from datetime import datetime, timezone
 import meterlib as ml
 
 SERVER_DEFAULT = "https://wallvibe.thehomelab.dev"
-SOURCE = "DSL"     # Noise source name readings are stored under
+# Base name; the meter's current weighting is appended -> DSL-A / DSL-C. dBA and
+# dBC are different quantities, so they must never share a source (the reports'
+# C-weighted low-frequency indicator and dBA WHO comparison each assume one).
+# Flip the meter's A/C button mid-run and readings just route to the other.
+SOURCE = "DSL"
 INTERVAL = 0.3     # ~3 Hz — matches the meter's FAST response so compressor kick-on transients show
 FLUSH = 2.0        # seconds between server pushes
 
@@ -91,7 +95,9 @@ class Streamer(threading.Thread):
                     handle = None; r = None
                 if r:
                     dsl_ok = True; dsl_info = f"{r['weighting']} · {r['mode']}"; dsl_db = r["dB"]
-                    buffer.append({"source": SOURCE, "ts": ts, "spl_db": round(r["dB"], 2)})
+                    w = r.get("weighting")
+                    src = f"{SOURCE}-{w}" if w in ("A", "C") else SOURCE
+                    buffer.append({"source": src, "ts": ts, "spl_db": round(r["dB"], 2)})
 
             self._set(DSL=dsl_db, dsl_info=dsl_info, dsl_ok=dsl_ok, buffered=len(buffer))
 
