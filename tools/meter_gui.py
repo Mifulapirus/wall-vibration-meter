@@ -72,54 +72,86 @@ class Streamer(threading.Thread):
         buffer = collections.deque(maxlen=500000)
         last_flush = 0.0
         last_open_try = 0.0
+        consec_fail = 0          # consecutive empty/failed reads while a handle is open
+        reconnects = 0
+        last_good = 0.0          # time of the last successful read
+        # A wedged HID device keeps a valid handle but returns nothing forever;
+        # ensure_open() only reopens a None handle, so force a reopen after this
+        # many consecutive bad reads (~6 s at 0.3 s cadence).
+        WEDGE_LIMIT = 20
+
+        def drop_handle():
+            nonlocal handle
+            if handle is not None:
+                try: handle.close()
+                except Exception: pass
+            handle = None
 
         def ensure_open():
-            nonlocal handle, last_open_try
+            nonlocal handle, last_open_try, reconnects
             if handle is not None or time.time() - last_open_try < 3.0:
                 return
             last_open_try = time.time()
-            handle = ml.open_meter(ml.DSL)
+            try:
+                handle = ml.open_meter(ml.DSL)
+            except Exception:  # noqa: BLE001 — enumerate/open can raise beyond OSError
+                handle = None
+            if handle is not None:
+                reconnects += 1
 
         while not self.stop.is_set():
             tick = time.time()
-            ensure_open()
-            ts = iso_now()
+            # Whole-iteration guard: nothing in here may kill the sampling thread,
+            # or the stream dies silently until someone notices in the morning.
+            try:
+                ensure_open()
+                ts = iso_now()
 
-            dsl_ok = False; dsl_info = ""; dsl_db = None
-            if handle is not None:
-                try:
-                    r = ml.read_dsl(handle)
-                except OSError:
-                    try: handle.close()
-                    except Exception: pass
-                    handle = None; r = None
-                if r:
-                    dsl_ok = True; dsl_info = f"{r['weighting']} · {r['mode']}"; dsl_db = r["dB"]
-                    w = r.get("weighting")
-                    src = f"{SOURCE}-{w}" if w in ("A", "C") else SOURCE
-                    buffer.append({"source": src, "ts": ts, "spl_db": round(r["dB"], 2)})
+                dsl_ok = False; dsl_info = ""; dsl_db = None
+                if handle is not None:
+                    try:
+                        r = ml.read_dsl(handle)
+                    except Exception:  # noqa: BLE001 — ANY hid error, not just OSError
+                        drop_handle(); r = None
+                    if r:
+                        consec_fail = 0; last_good = time.time()
+                        dsl_ok = True; dsl_info = f"{r['weighting']} · {r['mode']}"; dsl_db = r["dB"]
+                        w = r.get("weighting")
+                        src = f"{SOURCE}-{w}" if w in ("A", "C") else SOURCE
+                        buffer.append({"source": src, "ts": ts, "spl_db": round(r["dB"], 2)})
+                    else:
+                        consec_fail += 1
+                        if consec_fail >= WEDGE_LIMIT:   # meter wedged → force a reopen
+                            drop_handle(); consec_fail = 0; reconnects += 1
 
-            self._set(DSL=dsl_db, dsl_info=dsl_info, dsl_ok=dsl_ok, buffered=len(buffer))
+                self._set(DSL=dsl_db, dsl_info=dsl_info, dsl_ok=dsl_ok, buffered=len(buffer))
 
-            # Flush to server on cadence.
-            if buffer and time.time() - last_flush >= FLUSH:
-                batch = list(buffer)
-                try:
-                    post_batch(self.url, "", batch)
-                    for _ in range(len(batch)):
-                        buffer.popleft()
-                    with self.lock:
-                        self.state["sent"] += len(batch)
-                    self._set(status=f"streaming · last push OK {time.strftime('%H:%M:%S')}",
-                              status_kind="ok", buffered=len(buffer))
-                except Exception as e:  # noqa: BLE001
-                    self._set(status=f"offline — buffering {len(buffer)} ({type(e).__name__})",
-                              status_kind="bad", buffered=len(buffer))
-                last_flush = time.time()
+                # Flush to server on cadence.
+                if buffer and time.time() - last_flush >= FLUSH:
+                    batch = list(buffer)
+                    try:
+                        post_batch(self.url, "", batch)
+                        for _ in range(len(batch)):
+                            buffer.popleft()
+                        with self.lock:
+                            self.state["sent"] += len(batch)
+                        rc = f" · {reconnects} reconnects" if reconnects else ""
+                        self._set(status=f"streaming · last push OK {time.strftime('%H:%M:%S')}{rc}",
+                                  status_kind="ok", buffered=len(buffer))
+                    except Exception as e:  # noqa: BLE001
+                        self._set(status=f"offline — buffering {len(buffer)} ({type(e).__name__})",
+                                  status_kind="bad", buffered=len(buffer))
+                    last_flush = time.time()
 
-            if handle is None:
-                self._set(status="no meter found — check USB / close SoundLab",
-                          status_kind="bad")
+                if handle is None:
+                    self._set(status="no meter — check USB / close SoundLab (retrying)",
+                              status_kind="bad")
+                elif last_good and time.time() - last_good > 10:
+                    self._set(status=f"meter not responding {time.time()-last_good:.0f}s — reconnecting",
+                              status_kind="bad")
+            except Exception as e:  # noqa: BLE001 — last-resort net so the thread never exits
+                drop_handle()
+                self._set(status=f"recovering ({type(e).__name__})", status_kind="bad")
 
             self.stop.wait(max(0.0, INTERVAL - (time.time() - tick)))
 
