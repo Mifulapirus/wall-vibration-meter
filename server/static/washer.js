@@ -127,7 +127,7 @@ async function load() {
   drawLevels('aChart', a.pts, { unit: aU, loud: 80, peak: a.peak });
   el('pA').innerHTML = a.n
     ? `The trace above is the sound level inside the apartment while the in-unit laundry was running, measured with a calibrated Type&nbsp;2 meter. Rather than the steady low hum of a normal appliance, it repeatedly spikes into the red — peaking at <b>${f1(a.peak)} ${aU}</b> and averaging <b>${f1(a.leq)} ${aU}</b> across the cycle. The quiet stretches between spikes sat around <b>${f0(a.quietLeq)} ${aU}</b> (the room's ordinary background).` +
-      (aIsA ? ` Sustained noise at these levels is in the range that causes hearing strain and makes normal conversation, rest, or sleep impossible in the same space.` : ` Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
+      (aIsA ? ` Sustained noise at this level fills the room like a gas lawnmower running a few feet away, and its peaks rival a motorcycle roaring past — a relentless, industrial roar erupting from a household appliance, loud enough that prolonged exposure physically damages hearing.` : ` Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
     : '';
 
   el('cSec').style.display = c.n ? '' : 'none';
