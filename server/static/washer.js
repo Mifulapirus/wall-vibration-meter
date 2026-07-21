@@ -78,12 +78,12 @@ function soundLike(db) {
 // C-weighting emphasises. Kept sparse so the chart stays readable.
 function dramaRefs(w) {
   if (w === 'A') return [
-    { db: 90, label: 'a motorcycle at full throttle' },
-    { db: 95, label: 'a jackhammer 6 ft away' },
+    { db: 70, label: 'a vacuum roaring at your feet' },
+    { db: 76, label: 'bumper-to-bumper traffic' },
   ];
   if (w === 'C') return [
-    { db: 85, label: 'a subway train thundering in' },
-    { db: 95, label: 'a nightclub at full volume' },
+    { db: 75, label: 'a truck rumbling past' },
+    { db: 82, label: 'a subway train pulling in' },
   ];
   return [];
 }
@@ -133,14 +133,14 @@ async function load() {
     (a.n ? card(f1(a.peak), aU, 'Peak level', aIsA ? soundLike(a.peak) : 'C-weighted, not a dBA figure', '#ff6b60') +
       card(f1(a.leq), aU, 'Sustained (Leq)', 'average while running') +
       card(fmtDur(a.over90), '', `Time above 90 ${aU}`, aIsA ? 'hearing-hazard range' : '') +
-      card(fmtDur(a.over85), '', `Time above 85 ${aU}`, aIsA ? 'risk of hearing damage' : '') +
+      card(fmtDur(a.over80), '', `Time above 80 ${aU}`, aIsA ? 'risk of hearing damage' : '') +
       card(fmtDur(a.over70), '', `Time above 70 ${aU}`, '') : '') +
     (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', 'DSL, reads ~7 dB high') : '');
 
   el('aSec').style.display = a.n ? '' : 'none';
   el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${meterName('cal')}, ${aU})</span>`;
   el('aTitle').textContent = a.n ? `${span(a)} · ${meterName('cal')}, ${aw}-weighted · ${gRun.cal.src}` : '';
-  drawLevels('aChart', a.pts, { unit: aU, threshold: aIsA ? 85 : null, thresholdLabel: 'risk of hearing damage', refs: dramaRefs(aw), peak: a.peak });
+  drawLevels('aChart', a.pts, { unit: aU, threshold: aIsA ? 80 : null, thresholdLabel: 'risk of hearing damage', refs: dramaRefs(aw), peak: a.peak });
   el('pA').innerHTML = a.n
     ? `The trace above is the sound level inside the apartment while the in-unit laundry was running, measured with a calibrated Type&nbsp;2 meter. Rather than the steady low hum of a normal appliance, it repeatedly spikes into the red, peaking at <b>${f1(a.peak)} ${aU}</b> and averaging <b>${f1(a.leq)} ${aU}</b> across the cycle. The quiet stretches between spikes sat around <b>${f0(a.quietLeq)} ${aU}</b> (the room's ordinary background).` +
       (aIsA ? ` Sustained noise at this level fills the room like a gas lawnmower running a few feet away, and its peaks rival a motorcycle roaring past. It is a relentless, industrial roar erupting from a household appliance, loud enough that prolonged exposure physically damages hearing.` : ` Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
