@@ -3,7 +3,7 @@
 //
 // Every laundry run is imported as its own pair of Noise sources:
 //     WD<run?>[-DSL]-<A|C>-<YYYY-MM-DD>
-// where the -DSL- infix marks the UNCALIBRATED meter and its absence means the
+// where the -DSL- infix marks the DSL meter and its absence means the
 // calibrated eS528L (Type 2). <run> numbers multiple runs on one day.
 //
 // Which meter carries which weighting is NOT fixed: on 2026-07-15 the eS528L was
@@ -40,7 +40,7 @@ const runLabel = (r) => {
   const d = new Date(r.date + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
   return r.no ? `${d} · run ${r.no}` : d;
 };
-const meterName = (kind) => (kind === 'cal' ? 'calibrated eS528L (Type 2)' : 'DSL (uncalibrated)');
+const meterName = (kind) => (kind === 'cal' ? 'calibrated eS528L (Type 2)' : 'DSL');
 
 let gRuns = [], gRun = null;
 
@@ -119,7 +119,7 @@ async function load() {
       card(fmtDur(a.over90), '', `Time above 90 ${aU}`, aIsA ? 'hearing-hazard range' : '') +
       card(fmtDur(a.over80), '', `Time above 80 ${aU}`, aIsA ? 'garbage-disposal loud' : '') +
       card(fmtDur(a.over70), '', `Time above 70 ${aU}`, aIsA ? 'louder than a vacuum' : '') : '') +
-    (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', 'uncalibrated — reads ~7 dB high') : '');
+    (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', 'DSL — reads ~7 dB high') : '');
 
   el('aSec').style.display = a.n ? '' : 'none';
   el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${meterName('cal')}, ${aU})</span>`;
@@ -135,7 +135,7 @@ async function load() {
   el('cTitle').textContent = c.n ? `${span(c)} · DSL, ${cw}-weighted · ${gRun.dsl.src}` : '';
   drawLevels('cChart', c.pts, { unit: cU, loud: 80, peak: c.peak });
   el('pC').innerHTML = c.n
-    ? `The same run recorded on a second, <b>uncalibrated</b> meter (it reads roughly 7&nbsp;dB high against the calibrated one, so treat its absolute levels as indicative only — its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts — <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
+    ? `The same run recorded on the <b>DSL</b> meter (it reads roughly 7&nbsp;dB high against the calibrated eS528L, so treat its absolute levels as indicative only — its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts — <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
     : '';
 
   // The dB scale is an A-weighted everyday reference; only meaningful for a dBA run.
@@ -150,7 +150,7 @@ async function load() {
   }
 
   el('pMethod').innerHTML =
-    `Levels are recorded once per second. Readings marked <b>${meterName('cal')}</b> come from an ennoLogic eS528L Type&nbsp;2 (&plusmn;1.5&nbsp;dB) sound level meter in the living area; readings marked <b>${meterName('dsl')}</b> come from a second, uncalibrated meter that reads about 7&nbsp;dB high and is used for timing and duration rather than absolute level. <b>The weighting is stated per run</b> (A- or C-weighted) and is not assumed: dBA and dBC are different quantities and are never compared directly. "Time above" figures count the seconds at or over each level. Peaks are instantaneous maxima; the sustained (Leq) figure is the energy-average over the running period. Raw time-stamped data is available on request.`;
+    `Levels are recorded once per second. Readings marked <b>${meterName('cal')}</b> come from an ennoLogic eS528L Type&nbsp;2 (&plusmn;1.5&nbsp;dB) sound level meter in the living area; readings marked <b>${meterName('dsl')}</b> come from a second DSL meter that reads about 7&nbsp;dB high and is used for timing and duration rather than absolute level. <b>The weighting is stated per run</b> (A- or C-weighted) and is not assumed: dBA and dBC are different quantities and are never compared directly. "Time above" figures count the seconds at or over each level. Peaks are instantaneous maxima; the sustained (Leq) figure is the energy-average over the running period. Raw time-stamped data is available on request.`;
 
   el('meta').textContent = [gRun.cal && `${gRun.cal.src}: ${a.n} samples`,
                            gRun.dsl && `${gRun.dsl.src}: ${c.n} samples`].filter(Boolean).join(' · ');
