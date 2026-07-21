@@ -1,4 +1,4 @@
-// Washer & Dryer Noise Report — the extremely loud in-unit laundry noise,
+// Washer & Dryer Noise Report: the extremely loud in-unit laundry noise,
 // separate from the normal AC monitoring. Vanilla canvas.
 //
 // Every laundry run is imported as its own pair of Noise sources:
@@ -8,7 +8,7 @@
 //
 // Which meter carries which weighting is NOT fixed: on 2026-07-15 the eS528L was
 // on A and the DSL on C; on 2026-07-16 that inverted. So nothing here may assume
-// "calibrated ⇒ dBA" — the weighting is read from the source name, and the
+// "calibrated ⇒ dBA"; the weighting is read from the source name, and the
 // dBA-only benchmarks (a normal 55 dBA washer, the OSHA/NIOSH 85 dBA line, the
 // everyday-loudness comparisons) are shown ONLY when the calibrated meter really
 // was A-weighted. Otherwise this report would attribute numbers to the wrong
@@ -105,29 +105,29 @@ async function load() {
     `<h2>The washer &amp; dryer are grossly over the level of a normal home appliance</h2>` +
     `<ul>` +
     (a.n ? `<li>During operation the in-unit washer/dryer reached a peak of <b>${f1(a.peak)} ${aU}</b>` +
-      (aIsA ? ` — about as loud as <b>${soundLike(a.peak)}</b> —` : '') +
+      (aIsA ? ` (about as loud as <b>${soundLike(a.peak)}</b>)` : '') +
       ` inside the apartment, on the ${meterName('cal')}.</li>` +
       `<li>It held a sustained average of <b>${f1(a.leq)} ${aU}</b>, staying above <b>80 ${aU}</b> for <b>${fmtDur(a.over80)}</b> and above <b>90 ${aU}</b> for <b>${fmtDur(a.over90)}</b>.</li>` : '') +
     (a.n && aIsA ? `<li>A normal washing machine runs around <b>55 dBA</b>; this is roughly <b>${Math.round(Math.pow(2, (a.peak - 55) / 10))}&times; as loud</b> at its peak.</li>` : '') +
-    (a.n && !aIsA ? `<li>This run was recorded <b>C-weighted (${aU})</b>, so the dBA benchmarks for a normal appliance do not apply to it — the figures above are not comparable to an A-weighted limit.</li>` : '') +
+    (a.n && !aIsA ? `<li>This run was recorded <b>C-weighted (${aU})</b>, so the dBA benchmarks for a normal appliance do not apply to it; the figures above are not comparable to an A-weighted limit.</li>` : '') +
     (c.n ? `<li>A second meter (${meterName('dsl')}) recorded the same run at a peak of <b>${f1(c.peak)} ${cU}</b>.</li>` : '') +
     `</ul>`;
 
   el('cards').innerHTML =
-    (a.n ? card(f1(a.peak), aU, 'Peak level', aIsA ? soundLike(a.peak) : 'C-weighted — not a dBA figure', '#ff6b60') +
+    (a.n ? card(f1(a.peak), aU, 'Peak level', aIsA ? soundLike(a.peak) : 'C-weighted, not a dBA figure', '#ff6b60') +
       card(f1(a.leq), aU, 'Sustained (Leq)', 'average while running') +
       card(fmtDur(a.over90), '', `Time above 90 ${aU}`, aIsA ? 'hearing-hazard range' : '') +
       card(fmtDur(a.over80), '', `Time above 80 ${aU}`, aIsA ? 'garbage-disposal loud' : '') +
       card(fmtDur(a.over70), '', `Time above 70 ${aU}`, aIsA ? 'louder than a vacuum' : '') : '') +
-    (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', 'DSL — reads ~7 dB high') : '');
+    (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', 'DSL, reads ~7 dB high') : '');
 
   el('aSec').style.display = a.n ? '' : 'none';
   el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${meterName('cal')}, ${aU})</span>`;
   el('aTitle').textContent = a.n ? `${span(a)} · ${meterName('cal')}, ${aw}-weighted · ${gRun.cal.src}` : '';
   drawLevels('aChart', a.pts, { unit: aU, loud: 80, peak: a.peak });
   el('pA').innerHTML = a.n
-    ? `The trace above is the sound level inside the apartment while the in-unit laundry was running, measured with a calibrated Type&nbsp;2 meter. Rather than the steady low hum of a normal appliance, it repeatedly spikes into the red — peaking at <b>${f1(a.peak)} ${aU}</b> and averaging <b>${f1(a.leq)} ${aU}</b> across the cycle. The quiet stretches between spikes sat around <b>${f0(a.quietLeq)} ${aU}</b> (the room's ordinary background).` +
-      (aIsA ? ` Sustained noise at this level fills the room like a gas lawnmower running a few feet away, and its peaks rival a motorcycle roaring past — a relentless, industrial roar erupting from a household appliance, loud enough that prolonged exposure physically damages hearing.` : ` Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
+    ? `The trace above is the sound level inside the apartment while the in-unit laundry was running, measured with a calibrated Type&nbsp;2 meter. Rather than the steady low hum of a normal appliance, it repeatedly spikes into the red, peaking at <b>${f1(a.peak)} ${aU}</b> and averaging <b>${f1(a.leq)} ${aU}</b> across the cycle. The quiet stretches between spikes sat around <b>${f0(a.quietLeq)} ${aU}</b> (the room's ordinary background).` +
+      (aIsA ? ` Sustained noise at this level fills the room like a gas lawnmower running a few feet away, and its peaks rival a motorcycle roaring past. It is a relentless, industrial roar erupting from a household appliance, loud enough that prolonged exposure physically damages hearing.` : ` Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
     : '';
 
   el('cSec').style.display = c.n ? '' : 'none';
@@ -135,7 +135,7 @@ async function load() {
   el('cTitle').textContent = c.n ? `${span(c)} · DSL, ${cw}-weighted · ${gRun.dsl.src}` : '';
   drawLevels('cChart', c.pts, { unit: cU, loud: 80, peak: c.peak });
   el('pC').innerHTML = c.n
-    ? `The same run recorded on the <b>DSL</b> meter (it reads roughly 7&nbsp;dB high against the calibrated eS528L, so treat its absolute levels as indicative only — its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts — <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
+    ? `The same run recorded on the <b>DSL</b> meter (it reads roughly 7&nbsp;dB high against the calibrated eS528L, so treat its absolute levels as indicative only; its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts: <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
     : '';
 
   // The dB scale is an A-weighted everyday reference; only meaningful for a dBA run.
@@ -143,10 +143,10 @@ async function load() {
   if (aIsA) {
     drawScale(a.peak, a.leq);
     el('pScale').innerHTML =
-      `A properly working home washing machine measures about <b>55&nbsp;dBA</b> and a dryer about <b>60&nbsp;dBA</b> — quieter than a normal conversation. This unit instead reached <b>${f1(a.peak)} dBA</b> (red marker): <b>${soundLike(a.peak)}</b>. Occupational guidelines (OSHA/NIOSH) flag sustained exposure above <b>85&nbsp;dBA</b> as a hearing hazard; this exceeded that for <b>${fmtDur(a.over85)}</b>. A household appliance producing these levels indoors is malfunctioning or improperly installed, not operating normally.`;
+      `A properly working home washing machine measures about <b>55&nbsp;dBA</b> and a dryer about <b>60&nbsp;dBA</b>, quieter than everyday background noise. This unit instead reached <b>${f1(a.peak)} dBA</b> (red marker): <b>${soundLike(a.peak)}</b>. Occupational guidelines (OSHA/NIOSH) flag sustained exposure above <b>85&nbsp;dBA</b> as a hearing hazard; this exceeded that for <b>${fmtDur(a.over85)}</b>. A household appliance producing these levels indoors is malfunctioning or improperly installed, not operating normally.`;
   } else {
     el('pScale').innerHTML =
-      `The everyday-loudness scale is defined for A-weighted (dBA) levels. This run was recorded <b>C-weighted</b>, so it is deliberately not plotted against it — doing so would overstate the apparent loudness by the C&minus;A difference (about 17&nbsp;dB in this room). See a dBA run for that comparison.`;
+      `The everyday-loudness scale is defined for A-weighted (dBA) levels. This run was recorded <b>C-weighted</b>, so it is deliberately not plotted against it, because doing so would overstate the apparent loudness by the C&minus;A difference (about 17&nbsp;dB in this room). See a dBA run for that comparison.`;
   }
 
   el('pMethod').innerHTML =
