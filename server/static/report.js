@@ -63,12 +63,17 @@ async function load() {
                     .sort((a, b) => (a.last < b.last ? 1 : -1));
   populateNights();
   const chosen = nightsCache.find(s => s.source === el('night').value);
-  let d, anchor, live = false;
+  let d, anchor, csource = 'DSL-C', live = false;
   try {
     if (chosen) {
       anchor = chosen.source;
+      // Match the night's own dated C source (DSL-C-YYYY-MM-DD); fall back to the
+      // live DSL-C stream for nights captured that way.
+      const m = anchor.match(/(\d{4}-\d{2}-\d{2})$/);
+      const datedC = m && `DSL-C-${m[1]}`;
+      csource = (datedC && srcs.some(s => s.source === datedC && s.count > 100)) ? datedC : 'DSL-C';
       d = await fetch(`/api/fusion?from=${enc(chosen.first)}&to=${enc(chosen.last)}` +
-                      `&asource=${enc(anchor)}&csource=DSL-C&handling_db=${HANDLING}`, { cache: 'no-store' }).then(r => r.json());
+                      `&asource=${enc(anchor)}&csource=${enc(csource)}&handling_db=${HANDLING}`, { cache: 'no-store' }).then(r => r.json());
     } else {
       anchor = 'DSL-A'; live = true;
       d = await fetch(`/api/fusion?hours=${el('window').value}&asource=DSL-A&csource=DSL-C`, { cache: 'no-store' }).then(r => r.json());
@@ -76,7 +81,7 @@ async function load() {
   } catch (e) { el('verdict').innerHTML = `<h2>Could not load: ${e.message}</h2>`; return; }
 
   const A = (d.sound && d.sound[anchor]) || {};
-  const C = (d.sound && d.sound.DSL) || {};
+  const C = (d.sound && d.sound[csource]) || {};
   const comp = d.compressor || {};
   const laeq = A.leq;
   const span = f1(d.window.span_hours);
@@ -186,13 +191,18 @@ async function loadLF() {
 // Two bars: how much a standard (dBA) meter reports of each compressor surge
 // vs the actual level including low frequency (dBC).
 function drawLfBars(aDelta, cDelta) {
-  const cv = el('lfChart'); if (!cv || aDelta == null || cDelta == null) return;
+  const cv = el('lfChart'); if (!cv) return;
   const dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 1000, H = 132;
   cv.width = W * dpr; cv.height = H * dpr;
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui'; ctx.textAlign = 'start';
   ctx.fillText('Loudness the compressor adds each time it starts', 0, 12);
+  if (aDelta == null || cDelta == null) {
+    ctx.fillStyle = '#8b95a3'; ctx.font = '12px system-ui';
+    ctx.fillText('No C-weighted (low-frequency) meter data for this night.', 0, H / 2 + 6);
+    return;
+  }
   const max = Math.max(cDelta, aDelta, 1) * 1.3;
   const baseY = H - 24, top = 30, bw = Math.min(140, W * 0.2);
   const cx1 = W * 0.30 - bw / 2, cx2 = W * 0.66 - bw / 2;
