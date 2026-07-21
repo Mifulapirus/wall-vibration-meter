@@ -143,7 +143,7 @@ async function load() {
   drawLevels('aChart', a.pts, { unit: aU, threshold: aIsA ? 80 : null, thresholdLabel: 'risk of hearing damage', refs: dramaRefs(aw), peak: a.peak });
   el('pA').innerHTML = a.n
     ? (aIsA
-        ? `Inside the apartment, this laundry cycle averaged <b>${f1(a.leq)} ${aU}</b> and peaked at <b>${f1(a.peak)} ${aU}</b>: the drone of nonstop traffic rising to the crack of a jackhammer a few feet from where you live. Against a background of about <b>40 ${aU}</b> (just the AC), no household appliance should subject a resident to sound like this.`
+        ? `Inside the apartment, this laundry cycle averaged <b>${f1(a.leq)} ${aU}</b> and peaked at <b>${f1(a.peak)} ${aU}</b>: the drone of nonstop traffic rising to the crack of a jackhammer a few feet from where you live. Against a background of about <b>40 ${aU}</b> (just the AC), a normally functioning washer runs near <b>55 dBA</b> and a dryer near <b>60 dBA</b>; these units instead reach levels that are not safe to remain beside for any sustained period.`
         : `Inside the apartment, this laundry cycle averaged <b>${f1(a.leq)} ${aU}</b> and peaked at <b>${f1(a.peak)} ${aU}</b>. This run was <b>C-weighted</b>, so it must not be read against dBA limits.`)
     : '';
 
