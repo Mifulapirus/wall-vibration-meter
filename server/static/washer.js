@@ -72,6 +72,22 @@ function soundLike(db) {
   let best = t[0]; for (const x of t) { if (db >= x[0]) best = x; else break; } return best[1];
 }
 
+// Dramatic, weighting-appropriate reference lines for the level charts, to
+// convey how it feels to work a few feet from the machines. dBA values track
+// the standard everyday scale; the dBC lines lean on bass-heavy sources that
+// C-weighting emphasises. Kept sparse so the chart stays readable.
+function dramaRefs(w) {
+  if (w === 'A') return [
+    { db: 90, label: 'a motorcycle at full throttle' },
+    { db: 95, label: 'a jackhammer 6 ft away' },
+  ];
+  if (w === 'C') return [
+    { db: 85, label: 'a subway train thundering in' },
+    { db: 95, label: 'a nightclub at full volume' },
+  ];
+  return [];
+}
+
 const card = (n, unit, label, hint, color) =>
   `<div class="rcard"><div class="n"${color ? ` style="color:${color}"` : ''}>${n}${unit ? `<small> ${unit}</small>` : ''}</div>` +
   `<div class="l">${label}</div>${hint ? `<div class="h">${hint}</div>` : ''}</div>`;
@@ -124,7 +140,7 @@ async function load() {
   el('aSec').style.display = a.n ? '' : 'none';
   el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${meterName('cal')}, ${aU})</span>`;
   el('aTitle').textContent = a.n ? `${span(a)} · ${meterName('cal')}, ${aw}-weighted · ${gRun.cal.src}` : '';
-  drawLevels('aChart', a.pts, { unit: aU, threshold: aIsA ? 85 : null, thresholdLabel: 'risk of hearing damage', peak: a.peak });
+  drawLevels('aChart', a.pts, { unit: aU, threshold: aIsA ? 85 : null, thresholdLabel: 'risk of hearing damage', refs: dramaRefs(aw), peak: a.peak });
   el('pA').innerHTML = a.n
     ? `The trace above is the sound level inside the apartment while the in-unit laundry was running, measured with a calibrated Type&nbsp;2 meter. Rather than the steady low hum of a normal appliance, it repeatedly spikes into the red, peaking at <b>${f1(a.peak)} ${aU}</b> and averaging <b>${f1(a.leq)} ${aU}</b> across the cycle. The quiet stretches between spikes sat around <b>${f0(a.quietLeq)} ${aU}</b> (the room's ordinary background).` +
       (aIsA ? ` Sustained noise at this level fills the room like a gas lawnmower running a few feet away, and its peaks rival a motorcycle roaring past. It is a relentless, industrial roar erupting from a household appliance, loud enough that prolonged exposure physically damages hearing.` : ` Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
@@ -133,7 +149,7 @@ async function load() {
   el('cSec').style.display = c.n ? '' : 'none';
   el('cHead').innerHTML = `Second meter <span class="dim">(${meterName('dsl')}, ${cU})</span>`;
   el('cTitle').textContent = c.n ? `${span(c)} · DSL, ${cw}-weighted · ${gRun.dsl.src}` : '';
-  drawLevels('cChart', c.pts, { unit: cU, threshold: null, peak: c.peak });
+  drawLevels('cChart', c.pts, { unit: cU, threshold: null, refs: dramaRefs(cw), peak: c.peak });
   el('pC').innerHTML = c.n
     ? `The same run recorded on the <b>DSL</b> meter (it reads roughly 7&nbsp;dB high against the calibrated eS528L, so treat its absolute levels as indicative only; its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts: <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
     : '';
@@ -183,7 +199,7 @@ async function boot() {
 
 // ---- level-vs-time chart; area above the labelled threshold is shaded red ---
 function drawLevels(canvasId, pts, opts) {
-  const { unit, threshold, thresholdLabel, peak } = opts;
+  const { unit, threshold, thresholdLabel, refs, peak } = opts;
   const cv = el(canvasId), dpr = window.devicePixelRatio || 1;
   const W = cv.clientWidth || 1000, H = 220;
   cv.width = W * dpr; cv.height = H * dpr;
@@ -240,6 +256,17 @@ function drawLevels(canvasId, pts, opts) {
   ctx.strokeStyle = '#35a9ff'; ctx.lineWidth = 1; ctx.beginPath();
   pts.forEach((p, i) => { const xx = x(p.t), yy = y(p.db); i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); });
   ctx.stroke();
+  // dramatic everyday-reference lines (amber, labelled on the right)
+  if (refs && refs.length) {
+    ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.textAlign = 'right'; ctx.font = '11px system-ui';
+    for (const r of refs) {
+      if (r.db < dbMin || r.db > dbMax) continue;
+      ctx.strokeStyle = 'rgba(210,153,34,0.7)'; ctx.beginPath();
+      ctx.moveTo(padL, y(r.db)); ctx.lineTo(W - padR, y(r.db)); ctx.stroke();
+      ctx.fillStyle = '#e0b24a'; ctx.fillText(`${r.db} ${unit} · ${r.label}`, W - padR - 4, y(r.db) - 3);
+    }
+    ctx.setLineDash([]); ctx.textAlign = 'start';
+  }
   // peak marker
   if (peak != null) {
     const pk = pts.reduce((m, p) => p.db > m.db ? p : m, pts[0]);
