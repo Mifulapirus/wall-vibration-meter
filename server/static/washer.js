@@ -117,14 +117,14 @@ async function load() {
     (a.n ? card(f1(a.peak), aU, 'Peak level', aIsA ? soundLike(a.peak) : 'C-weighted, not a dBA figure', '#ff6b60') +
       card(f1(a.leq), aU, 'Sustained (Leq)', 'average while running') +
       card(fmtDur(a.over90), '', `Time above 90 ${aU}`, aIsA ? 'hearing-hazard range' : '') +
-      card(fmtDur(a.over80), '', `Time above 80 ${aU}`, aIsA ? 'garbage-disposal loud' : '') +
-      card(fmtDur(a.over70), '', `Time above 70 ${aU}`, aIsA ? 'louder than a vacuum' : '') : '') +
+      card(fmtDur(a.over85), '', `Time above 85 ${aU}`, aIsA ? 'risk of hearing damage' : '') +
+      card(fmtDur(a.over70), '', `Time above 70 ${aU}`, '') : '') +
     (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', 'DSL, reads ~7 dB high') : '');
 
   el('aSec').style.display = a.n ? '' : 'none';
   el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${meterName('cal')}, ${aU})</span>`;
   el('aTitle').textContent = a.n ? `${span(a)} · ${meterName('cal')}, ${aw}-weighted · ${gRun.cal.src}` : '';
-  drawLevels('aChart', a.pts, { unit: aU, loud: 80, peak: a.peak });
+  drawLevels('aChart', a.pts, { unit: aU, threshold: aIsA ? 85 : null, thresholdLabel: 'risk of hearing damage', peak: a.peak });
   el('pA').innerHTML = a.n
     ? `The trace above is the sound level inside the apartment while the in-unit laundry was running, measured with a calibrated Type&nbsp;2 meter. Rather than the steady low hum of a normal appliance, it repeatedly spikes into the red, peaking at <b>${f1(a.peak)} ${aU}</b> and averaging <b>${f1(a.leq)} ${aU}</b> across the cycle. The quiet stretches between spikes sat around <b>${f0(a.quietLeq)} ${aU}</b> (the room's ordinary background).` +
       (aIsA ? ` Sustained noise at this level fills the room like a gas lawnmower running a few feet away, and its peaks rival a motorcycle roaring past. It is a relentless, industrial roar erupting from a household appliance, loud enough that prolonged exposure physically damages hearing.` : ` Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
@@ -133,7 +133,7 @@ async function load() {
   el('cSec').style.display = c.n ? '' : 'none';
   el('cHead').innerHTML = `Second meter <span class="dim">(${meterName('dsl')}, ${cU})</span>`;
   el('cTitle').textContent = c.n ? `${span(c)} · DSL, ${cw}-weighted · ${gRun.dsl.src}` : '';
-  drawLevels('cChart', c.pts, { unit: cU, loud: 80, peak: c.peak });
+  drawLevels('cChart', c.pts, { unit: cU, threshold: null, peak: c.peak });
   el('pC').innerHTML = c.n
     ? `The same run recorded on the <b>DSL</b> meter (it reads roughly 7&nbsp;dB high against the calibrated eS528L, so treat its absolute levels as indicative only; its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts: <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
     : '';
@@ -181,9 +181,9 @@ async function boot() {
   await load();
 }
 
-// ---- level-vs-time chart with loud (>threshold) shaded red -----------------
+// ---- level-vs-time chart; area above the labelled threshold is shaded red ---
 function drawLevels(canvasId, pts, opts) {
-  const { unit, loud, peak } = opts;
+  const { unit, threshold, thresholdLabel, peak } = opts;
   const cv = el(canvasId), dpr = window.devicePixelRatio || 1;
   const W = cv.clientWidth || 1000, H = 220;
   cv.width = W * dpr; cv.height = H * dpr;
@@ -209,27 +209,33 @@ function drawLevels(canvasId, pts, opts) {
   for (let d = dbMin; d <= dbMax; d += 10) ctx.fillText(d + '', 6, y(d) + 3);
   ctx.fillText(unit, 6, padT + 2);
 
-  // loud threshold line
-  if (loud <= dbMax) {
+  // hearing-loss threshold line (drawn only when one applies to this weighting)
+  const hasThr = threshold != null && threshold <= dbMax;
+  if (hasThr) {
     ctx.strokeStyle = 'rgba(255,77,77,0.6)'; ctx.setLineDash([5, 4]); ctx.beginPath();
-    ctx.moveTo(padL, y(loud)); ctx.lineTo(W - padR, y(loud)); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = '#ff6b60'; ctx.fillText(`${loud} ${unit}`, padL + 4, y(loud) - 3);
+    ctx.moveTo(padL, y(threshold)); ctx.lineTo(W - padR, y(threshold)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#ff6b60';
+    ctx.fillText(`${threshold} ${unit}${thresholdLabel ? ' · ' + thresholdLabel : ''}`, padL + 4, y(threshold) - 3);
   }
-  // filled area, red above the loud line
-  const draw = (colFill, colLine, clipAbove) => {
-    ctx.save();
-    ctx.beginPath();
-    if (clipAbove) ctx.rect(padL, padT, W - padL - padR, y(loud) - padT);
-    else ctx.rect(padL, y(loud), W - padL - padR, (H - padB) - y(loud));
-    ctx.clip();
+  // area trace under the curve; red above the threshold, blue below (all blue if no threshold)
+  const traceFill = (colFill) => {
     ctx.beginPath(); ctx.moveTo(x(pts[0].t), H - padB);
     pts.forEach(p => ctx.lineTo(x(p.t), y(p.db)));
     ctx.lineTo(x(pts[pts.length - 1].t), H - padB); ctx.closePath();
     ctx.fillStyle = colFill; ctx.fill();
-    ctx.restore();
   };
-  draw('rgba(255,77,77,0.35)', null, true);         // above loud -> red
-  draw('rgba(53,169,255,0.16)', null, false);       // below loud -> blue
+  if (hasThr) {
+    const clipped = (colFill, above) => {
+      ctx.save(); ctx.beginPath();
+      if (above) ctx.rect(padL, padT, W - padL - padR, y(threshold) - padT);
+      else ctx.rect(padL, y(threshold), W - padL - padR, (H - padB) - y(threshold));
+      ctx.clip(); traceFill(colFill); ctx.restore();
+    };
+    clipped('rgba(255,77,77,0.35)', true);    // above threshold -> red
+    clipped('rgba(53,169,255,0.16)', false);  // below threshold -> blue
+  } else {
+    traceFill('rgba(53,169,255,0.16)');
+  }
   // outline
   ctx.strokeStyle = '#35a9ff'; ctx.lineWidth = 1; ctx.beginPath();
   pts.forEach((p, i) => { const xx = x(p.t), yy = y(p.db); i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); });
