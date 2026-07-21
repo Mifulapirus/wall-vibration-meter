@@ -142,10 +142,9 @@ async function load() {
   el('aTitle').textContent = a.n ? `${span(a)} · ${meterName('cal')}, ${aw}-weighted · ${gRun.cal.src}` : '';
   drawLevels('aChart', a.pts, { unit: aU, threshold: aIsA ? 80 : null, thresholdLabel: 'risk of hearing damage', refs: dramaRefs(aw), peak: a.peak });
   el('pA').innerHTML = a.n
-    ? `The trace above is the sound level inside the master bedroom while the in-unit washer and dryer were running, measured with a calibrated Type&nbsp;2 meter. These are two separate machines with two separate problems. The <b>washer</b> storms and bumps as if something loose were slamming against the drum, throwing the sharp spikes into the red that peak at <b>${f1(a.peak)} ${aU}</b>. The <b>dryer</b> layers a high-pitched squeal on top, the kind of piercing, repetitive noise that grates far more than its level alone suggests.` +
-      (aIsA
-        ? ` Across the cycle the level averaged <b>${f1(a.leq)} ${aU}</b>, and even the lulls between the washer's slams sat near <b>${f0(a.quietLeq)} ${aU}</b>, already far above the room's own background of about <b>40 ${aU}</b> (just the AC) once both machines stop. If the dryer's squeal runs high enough in pitch, A-weighting rolls off the very top of the range and can understate it. Noise like this fills the room like a gas lawnmower a few feet away, with peaks that rival a motorcycle roaring past: a relentless, industrial din from household appliances, loud enough that prolonged exposure physically damages hearing.`
-        : ` Across the cycle the level averaged <b>${f1(a.leq)} ${aU}</b>. Note this run was <b>C-weighted</b>: it includes low-frequency energy that A-weighting discards, so it must not be read against dBA limits.`)
+    ? (aIsA
+        ? `Inside the apartment, this laundry cycle averaged <b>${f1(a.leq)} ${aU}</b> and peaked at <b>${f1(a.peak)} ${aU}</b>: the drone of nonstop traffic rising to the crack of a jackhammer a few feet from where you live. Against a background of about <b>40 ${aU}</b> (just the AC), no household appliance should subject a resident to sound like this.`
+        : `Inside the apartment, this laundry cycle averaged <b>${f1(a.leq)} ${aU}</b> and peaked at <b>${f1(a.peak)} ${aU}</b>. This run was <b>C-weighted</b>, so it must not be read against dBA limits.`)
     : '';
 
   el('cSec').style.display = c.n ? '' : 'none';
