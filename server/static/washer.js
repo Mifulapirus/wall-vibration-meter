@@ -77,18 +77,18 @@ function soundLike(db) {
 // past the hearing-damage line, with quiet-room and WHO indoor markers. Other
 // weightings (the over-reading DSL, a dBC run) get a plain trace.
 const QUIET = 40, NORMAL_MAX = 60, HEARING = 80, WHO_EVENT = 45;   // dBA
-const PLAIN_ZONES = { bands: [{ lo: -Infinity, hi: Infinity, color: 'rgba(53,169,255,0.16)' }], lines: [] };
+const PLAIN_ZONES = { bands: [{ lo: -Infinity, hi: Infinity, color: 'rgba(53,169,255,0.09)' }], lines: [] };
 function dbaZones() {
   return {
     bands: [
-      { lo: -Infinity, hi: NORMAL_MAX, color: 'rgba(63,185,80,0.22)' },  // normal appliance or quieter
-      { lo: NORMAL_MAX, hi: HEARING, color: 'rgba(210,153,34,0.32)' },    // above normal: malfunctioning
-      { lo: HEARING, hi: Infinity, color: 'rgba(255,77,77,0.34)' },       // hearing-damage risk
+      { lo: -Infinity, hi: NORMAL_MAX, color: 'rgba(63,185,80,0.12)' },   // normal appliance or quieter
+      { lo: NORMAL_MAX, hi: HEARING, color: 'rgba(210,153,34,0.15)' },     // above normal: malfunctioning
+      { lo: HEARING, hi: Infinity, color: 'rgba(255,77,77,0.15)' },        // hearing-damage risk
     ],
     lines: [
       { db: QUIET, label: 'a quiet room (just the AC)', color: '#3fb950', align: 'right' },
       { db: WHO_EVENT, label: 'WHO indoor event limit', color: '#4aa8ff', align: 'left' },
-      { db: NORMAL_MAX, label: 'a malfunctioning appliance tearing itself apart', color: '#e0a03a', align: 'right' },
+      { db: NORMAL_MAX, label: 'a machine tearing itself apart', color: '#e0a03a', align: 'right' },
       { db: HEARING, label: 'risk of hearing damage', color: '#ff6b60', align: 'right' },
     ],
   };
@@ -232,43 +232,43 @@ function drawLevels(canvasId, pts, opts) {
   for (let d = dbMin; d <= dbMax; d += 10) ctx.fillText(d + '', 6, y(d) + 3);
   ctx.fillText(unit, 6, padT + 2);
 
-  // colour bands: fill the area under the trace, clipped to each level range
-  const traceFill = (colFill) => {
-    ctx.beginPath(); ctx.moveTo(x(pts[0].t), H - padB);
-    pts.forEach(p => ctx.lineTo(x(p.t), y(p.db)));
-    ctx.lineTo(x(pts[pts.length - 1].t), H - padB); ctx.closePath();
-    ctx.fillStyle = colFill; ctx.fill();
-  };
+  // faint level zones as full-width background tints (behind the trace)
   (bands || []).forEach(b => {
     const yTop = Math.max(padT, y(Math.min(b.hi, dbMax)));
     const yBot = Math.min(H - padB, y(Math.max(b.lo, dbMin)));
     if (yBot - yTop < 0.5) return;
-    ctx.save(); ctx.beginPath(); ctx.rect(padL, yTop, W - padL - padR, yBot - yTop); ctx.clip();
-    traceFill(b.color); ctx.restore();
+    ctx.fillStyle = b.color; ctx.fillRect(padL, yTop, W - padL - padR, yBot - yTop);
   });
-  // outline
-  ctx.strokeStyle = '#cdd6e0'; ctx.lineWidth = 1; ctx.beginPath();
+  // trace line
+  ctx.strokeStyle = '#e6edf3'; ctx.lineWidth = 1; ctx.beginPath();
   pts.forEach((p, i) => { const xx = x(p.t), yy = y(p.db); i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); });
   ctx.stroke();
+  // label with a dark backing so it stays legible over the trace
+  const tag = (txt, cx, cy, col, align) => {
+    ctx.font = '11px system-ui'; ctx.textAlign = align;
+    const w = ctx.measureText(txt).width;
+    const bx = align === 'left' ? cx - 2 : cx - w - 2;
+    ctx.fillStyle = 'rgba(11,14,24,0.78)'; ctx.fillRect(bx, cy - 12, w + 4, 14);
+    ctx.fillStyle = col; ctx.fillText(txt, cx, cy - 2);
+  };
   // labelled reference lines (quiet room, WHO limit, malfunction, hearing damage)
   if (lines && lines.length) {
-    ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.font = '11px system-ui';
+    ctx.lineWidth = 1;
     for (const ln of lines) {
       if (ln.db < dbMin || ln.db > dbMax) continue;
-      ctx.strokeStyle = ln.color; ctx.beginPath();
-      ctx.moveTo(padL, y(ln.db)); ctx.lineTo(W - padR, y(ln.db)); ctx.stroke();
-      ctx.fillStyle = ln.color;
-      ctx.textAlign = ln.align === 'left' ? 'left' : 'right';
-      ctx.fillText(`${ln.db} ${unit} · ${ln.label}`, ln.align === 'left' ? padL + 4 : W - padR - 4, y(ln.db) - 3);
+      ctx.strokeStyle = ln.color; ctx.setLineDash([5, 4]); ctx.beginPath();
+      ctx.moveTo(padL, y(ln.db)); ctx.lineTo(W - padR, y(ln.db)); ctx.stroke(); ctx.setLineDash([]);
+      const left = ln.align === 'left';
+      tag(`${ln.db} ${unit} · ${ln.label}`, left ? padL + 5 : W - padR - 5, y(ln.db), ln.color, left ? 'left' : 'right');
     }
-    ctx.setLineDash([]); ctx.textAlign = 'start';
   }
   // peak marker
   if (peak != null) {
     const pk = pts.reduce((m, p) => p.db > m.db ? p : m, pts[0]);
     ctx.fillStyle = '#ff4d4d'; ctx.beginPath(); ctx.arc(x(pk.t), y(pk.db), 3, 0, 7); ctx.fill();
-    ctx.font = 'bold 11px system-ui'; ctx.fillText(`${pk.db.toFixed(1)} ${unit}`, x(pk.t) + 6, y(pk.db) + 3);
+    tag(`${pk.db.toFixed(1)} ${unit}`, x(pk.t) + 7, y(pk.db) + 6, '#ff8078', 'left');
   }
+  ctx.textAlign = 'start';
 }
 
 // ---- dB reference scale ----------------------------------------------------
