@@ -107,15 +107,23 @@ async function load() {
       ? fetch(`/api/noise?source=${enc(s.src)}&hours=0&limit=40000`, { cache: 'no-store' }).then(r => r.json())
       : Promise.resolve([])));
   } catch (e) { el('verdict').innerHTML = `<h2>Could not load: ${e.message}</h2>`; return; }
-  const a = analyze(got[0]), c = analyze(got[1]);
-  const aw = gRun.cal ? gRun.cal.w : null;     // weighting of the calibrated meter
-  const cw = gRun.dsl ? gRun.dsl.w : null;     // weighting of the DSL
-  const aU = aw ? 'dB' + aw : '';
-  const cU = cw ? 'dB' + cw : '';
-  // The everyday-loudness and 55 dBA / 85 dBA benchmarks are defined for
-  // A-weighting only; quoting them against a dBC number would overstate the
-  // level by the C-A difference (~17 dB in this room).
+  // Assign the run's two captures to roles by WEIGHTING, not by meter: the
+  // A-weighted capture drives the primary dBA card (banded chart, WHO/hearing
+  // lines, dramatic copy) whichever meter recorded it; the other is secondary.
+  // Each is labelled by its real meter — eS528L (calibrated) or just DSL.
+  const caps = [];
+  if (gRun.cal) caps.push({ ...gRun.cal, meter: 'cal', data: got[0] });
+  if (gRun.dsl) caps.push({ ...gRun.dsl, meter: 'dsl', data: got[1] });
+  const primary = caps.find(m => m.w === 'A') || caps[0] || null;
+  const secondary = caps.find(m => m !== primary) || null;
+  const a = analyze(primary ? primary.data : []);
+  const c = analyze(secondary ? secondary.data : []);
+  const aw = primary ? primary.w : null, cw = secondary ? secondary.w : null;
+  const aU = aw ? 'dB' + aw : '', cU = cw ? 'dB' + cw : '';
   const aIsA = aw === 'A';
+  const aMeter = primary ? meterName(primary.meter) : '';
+  const cMeter = secondary ? meterName(secondary.meter) : '';
+  const cIsDsl = secondary && secondary.meter === 'dsl';
 
   const dt = (ms) => new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
   const tm = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -128,11 +136,11 @@ async function load() {
     `<ul>` +
     (a.n ? `<li>During operation the in-unit washer/dryer reached a peak of <b>${f1(a.peak)} ${aU}</b>` +
       (aIsA ? ` (about as loud as <b>${soundLike(a.peak)}</b>)` : '') +
-      ` inside the apartment, on the ${meterName('cal')}.</li>` +
+      ` inside the apartment, on the ${aMeter}.</li>` +
       `<li>It held a sustained average of <b>${f1(a.leq)} ${aU}</b>, staying above <b>80 ${aU}</b> for <b>${fmtDur(a.over80)}</b> and above <b>90 ${aU}</b> for <b>${fmtDur(a.over90)}</b>.</li>` : '') +
     (a.n && aIsA ? `<li>A normal washing machine runs around <b>55 dBA</b>; this is roughly <b>${Math.round(Math.pow(2, (a.peak - 55) / 10))}&times; as loud</b> at its peak.</li>` : '') +
     (a.n && !aIsA ? `<li>This run was recorded <b>C-weighted (${aU})</b>, so the dBA benchmarks for a normal appliance do not apply to it; the figures above are not comparable to an A-weighted limit.</li>` : '') +
-    (c.n ? `<li>A second meter (${meterName('dsl')}) recorded the same run at a peak of <b>${f1(c.peak)} ${cU}</b>.</li>` : '') +
+    (c.n ? `<li>A second meter (${cMeter}) recorded the same run at a peak of <b>${f1(c.peak)} ${cU}</b>.</li>` : '') +
     `</ul>`;
 
   el('cards').innerHTML =
@@ -141,11 +149,11 @@ async function load() {
       card(fmtDur(a.over90), '', `Time above 90 ${aU}`, aIsA ? 'hearing-hazard range' : '') +
       card(fmtDur(a.over80), '', `Time above 80 ${aU}`, aIsA ? 'risk of hearing damage' : '') +
       card(fmtDur(a.over70), '', `Time above 70 ${aU}`, '') : '') +
-    (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', 'DSL, reads ~7 dB high') : '');
+    (c.n ? card(f1(c.peak), cU, 'Peak (second meter)', cIsDsl ? 'DSL, reads ~7 dB high' : cMeter) : '');
 
   el('aSec').style.display = a.n ? '' : 'none';
-  el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${meterName('cal')}, ${aU})</span>`;
-  el('aTitle').textContent = a.n ? `${span(a)} · ${meterName('cal')}, ${aw}-weighted · ${gRun.cal.src}` : '';
+  el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${aMeter}, ${aU})</span>`;
+  el('aTitle').textContent = a.n ? `${span(a)} · ${aMeter}, ${aw}-weighted · ${primary.src}` : '';
   drawLevels('aChart', a.pts, { unit: aU, ...(aIsA ? dbaZones() : PLAIN_ZONES), peak: a.peak });
   el('pA').innerHTML = a.n
     ? (aIsA
@@ -154,11 +162,13 @@ async function load() {
     : '';
 
   el('cSec').style.display = c.n ? '' : 'none';
-  el('cHead').innerHTML = `Second meter <span class="dim">(${meterName('dsl')}, ${cU})</span>`;
-  el('cTitle').textContent = c.n ? `${span(c)} · DSL, ${cw}-weighted · ${gRun.dsl.src}` : '';
+  el('cHead').innerHTML = `Second meter <span class="dim">(${cMeter}, ${cU})</span>`;
+  el('cTitle').textContent = c.n ? `${span(c)} · ${cMeter}, ${cw}-weighted · ${secondary.src}` : '';
   drawLevels('cChart', c.pts, { unit: cU, ...PLAIN_ZONES, peak: c.peak });
   el('pC').innerHTML = c.n
-    ? `The same run recorded on the <b>DSL</b> meter (it reads roughly 7&nbsp;dB high against the calibrated eS528L, so treat its absolute levels as indicative only; its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts: <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
+    ? `The same run recorded <b>${cw}-weighted</b> on the <b>${cMeter}</b>` +
+      (cIsDsl ? ` (it reads roughly 7&nbsp;dB high against the calibrated eS528L, so treat its absolute levels as indicative only; its value here is timing and duration)` : `, which captures the low-frequency energy that A-weighting discards`) +
+      `. Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts: <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
     : '';
 
   // The dB scale is an A-weighted everyday reference; only meaningful for a dBA run.
@@ -173,10 +183,10 @@ async function load() {
   }
 
   el('pMethod').innerHTML =
-    `Levels are recorded once per second. Readings marked <b>${meterName('cal')}</b> come from an ennoLogic eS528L Type&nbsp;2 (&plusmn;1.5&nbsp;dB) sound level meter in the master bedroom; readings marked <b>${meterName('dsl')}</b> come from a second DSL meter that reads about 7&nbsp;dB high and is used for timing and duration rather than absolute level. <b>The weighting is stated per run</b> (A- or C-weighted) and is not assumed: dBA and dBC are different quantities and are never compared directly. "Time above" figures count the seconds at or over each level. Peaks are instantaneous maxima; the sustained (Leq) figure is the energy-average over the running period. Raw time-stamped data is available on request.`;
+    `Levels are recorded once per second at the sleeping area in the master bedroom. The ennoLogic eS528L is a calibrated Type&nbsp;2 (&plusmn;1.5&nbsp;dB) sound level meter; the DSL is a second sound level meter. <b>Each run states which meter and weighting produced the figures shown</b> (A- or C-weighted); dBA and dBC are different quantities and are never compared directly. "Time above" figures count the seconds at or over each level. Peaks are instantaneous maxima; the sustained (Leq) figure is the energy-average over the running period. Raw time-stamped data is available on request.`;
 
-  el('meta').textContent = [gRun.cal && `${gRun.cal.src}: ${a.n} samples`,
-                           gRun.dsl && `${gRun.dsl.src}: ${c.n} samples`].filter(Boolean).join(' · ');
+  el('meta').textContent = [primary && `${primary.src}: ${a.n} samples`,
+                           secondary && `${secondary.src}: ${c.n} samples`].filter(Boolean).join(' · ');
 }
 
 async function boot() {
