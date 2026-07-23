@@ -72,20 +72,26 @@ function soundLike(db) {
   let best = t[0]; for (const x of t) { if (db >= x[0]) best = x; else break; } return best[1];
 }
 
-// Dramatic, weighting-appropriate reference lines for the level charts, to
-// convey how it feels to work a few feet from the machines. dBA values track
-// the standard everyday scale; the dBC lines lean on bass-heavy sources that
-// C-weighting emphasises. Kept sparse so the chart stays readable.
-function dramaRefs(w) {
-  if (w === 'A') return [
-    { db: 70, label: 'a vacuum roaring at your feet' },
-    { db: 76, label: 'bumper-to-bumper traffic' },
-  ];
-  if (w === 'C') return [
-    { db: 75, label: 'a truck rumbling past' },
-    { db: 82, label: 'a subway train pulling in' },
-  ];
-  return [];
+// Colour bands + reference lines for the level chart. A dBA run gets the full
+// scheme: green below a normal appliance, orange for a malfunctioning one, red
+// past the hearing-damage line, with quiet-room and WHO indoor markers. Other
+// weightings (the over-reading DSL, a dBC run) get a plain trace.
+const QUIET = 40, NORMAL_MAX = 60, HEARING = 80, WHO_EVENT = 45;   // dBA
+const PLAIN_ZONES = { bands: [{ lo: -Infinity, hi: Infinity, color: 'rgba(53,169,255,0.16)' }], lines: [] };
+function dbaZones() {
+  return {
+    bands: [
+      { lo: -Infinity, hi: NORMAL_MAX, color: 'rgba(63,185,80,0.22)' },  // normal appliance or quieter
+      { lo: NORMAL_MAX, hi: HEARING, color: 'rgba(210,153,34,0.32)' },    // above normal: malfunctioning
+      { lo: HEARING, hi: Infinity, color: 'rgba(255,77,77,0.34)' },       // hearing-damage risk
+    ],
+    lines: [
+      { db: QUIET, label: 'a quiet room (just the AC)', color: '#3fb950', align: 'right' },
+      { db: WHO_EVENT, label: 'WHO indoor event limit', color: '#4aa8ff', align: 'left' },
+      { db: NORMAL_MAX, label: 'a malfunctioning appliance tearing itself apart', color: '#e0a03a', align: 'right' },
+      { db: HEARING, label: 'risk of hearing damage', color: '#ff6b60', align: 'right' },
+    ],
+  };
 }
 
 const card = (n, unit, label, hint, color) =>
@@ -140,7 +146,7 @@ async function load() {
   el('aSec').style.display = a.n ? '' : 'none';
   el('aHead').innerHTML = `Washer/dryer noise <span class="dim">(${meterName('cal')}, ${aU})</span>`;
   el('aTitle').textContent = a.n ? `${span(a)} · ${meterName('cal')}, ${aw}-weighted · ${gRun.cal.src}` : '';
-  drawLevels('aChart', a.pts, { unit: aU, threshold: aIsA ? 80 : null, thresholdLabel: 'risk of hearing damage', refs: dramaRefs(aw), peak: a.peak });
+  drawLevels('aChart', a.pts, { unit: aU, ...(aIsA ? dbaZones() : PLAIN_ZONES), peak: a.peak });
   el('pA').innerHTML = a.n
     ? (aIsA
         ? `Inside the apartment, this laundry cycle averaged <b>${f1(a.leq)} ${aU}</b> and peaked at <b>${f1(a.peak)} ${aU}</b>: the drone of nonstop traffic rising to the crack of a jackhammer a few feet from where you live. Against a background of about <b>40 ${aU}</b> (just the AC), a normally functioning washer runs near <b>55 dBA</b> and a dryer near <b>60 dBA</b>; these units instead reach levels that are not safe to remain beside for any sustained period.`
@@ -150,7 +156,7 @@ async function load() {
   el('cSec').style.display = c.n ? '' : 'none';
   el('cHead').innerHTML = `Second meter <span class="dim">(${meterName('dsl')}, ${cU})</span>`;
   el('cTitle').textContent = c.n ? `${span(c)} · DSL, ${cw}-weighted · ${gRun.dsl.src}` : '';
-  drawLevels('cChart', c.pts, { unit: cU, threshold: null, refs: dramaRefs(cw), peak: c.peak });
+  drawLevels('cChart', c.pts, { unit: cU, ...PLAIN_ZONES, peak: c.peak });
   el('pC').innerHTML = c.n
     ? `The same run recorded on the <b>DSL</b> meter (it reads roughly 7&nbsp;dB high against the calibrated eS528L, so treat its absolute levels as indicative only; its value here is timing and duration). Against a background near <b>${f0(c.quietLeq)} ${cU}</b>, the laundry produced repeated loud bursts: <b>${fmtDur(c.over90)}</b> above 90&nbsp;${cU} and a peak of <b>${f1(c.peak)} ${cU}</b>.`
     : '';
@@ -198,9 +204,9 @@ async function boot() {
   await load();
 }
 
-// ---- level-vs-time chart; area above the labelled threshold is shaded red ---
+// ---- level-vs-time chart; trace area colour-banded by level ----------------
 function drawLevels(canvasId, pts, opts) {
-  const { unit, threshold, thresholdLabel, refs, peak } = opts;
+  const { unit, bands, lines, peak } = opts;
   const cv = el(canvasId), dpr = window.devicePixelRatio || 1;
   const W = cv.clientWidth || 1000, H = 220;
   cv.width = W * dpr; cv.height = H * dpr;
@@ -226,45 +232,34 @@ function drawLevels(canvasId, pts, opts) {
   for (let d = dbMin; d <= dbMax; d += 10) ctx.fillText(d + '', 6, y(d) + 3);
   ctx.fillText(unit, 6, padT + 2);
 
-  // hearing-loss threshold line (drawn only when one applies to this weighting)
-  const hasThr = threshold != null && threshold <= dbMax;
-  if (hasThr) {
-    ctx.strokeStyle = 'rgba(255,77,77,0.6)'; ctx.setLineDash([5, 4]); ctx.beginPath();
-    ctx.moveTo(padL, y(threshold)); ctx.lineTo(W - padR, y(threshold)); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = '#ff6b60';
-    ctx.fillText(`${threshold} ${unit}${thresholdLabel ? ' · ' + thresholdLabel : ''}`, padL + 4, y(threshold) - 3);
-  }
-  // area trace under the curve; red above the threshold, blue below (all blue if no threshold)
+  // colour bands: fill the area under the trace, clipped to each level range
   const traceFill = (colFill) => {
     ctx.beginPath(); ctx.moveTo(x(pts[0].t), H - padB);
     pts.forEach(p => ctx.lineTo(x(p.t), y(p.db)));
     ctx.lineTo(x(pts[pts.length - 1].t), H - padB); ctx.closePath();
     ctx.fillStyle = colFill; ctx.fill();
   };
-  if (hasThr) {
-    const clipped = (colFill, above) => {
-      ctx.save(); ctx.beginPath();
-      if (above) ctx.rect(padL, padT, W - padL - padR, y(threshold) - padT);
-      else ctx.rect(padL, y(threshold), W - padL - padR, (H - padB) - y(threshold));
-      ctx.clip(); traceFill(colFill); ctx.restore();
-    };
-    clipped('rgba(255,77,77,0.35)', true);    // above threshold -> red
-    clipped('rgba(53,169,255,0.16)', false);  // below threshold -> blue
-  } else {
-    traceFill('rgba(53,169,255,0.16)');
-  }
+  (bands || []).forEach(b => {
+    const yTop = Math.max(padT, y(Math.min(b.hi, dbMax)));
+    const yBot = Math.min(H - padB, y(Math.max(b.lo, dbMin)));
+    if (yBot - yTop < 0.5) return;
+    ctx.save(); ctx.beginPath(); ctx.rect(padL, yTop, W - padL - padR, yBot - yTop); ctx.clip();
+    traceFill(b.color); ctx.restore();
+  });
   // outline
-  ctx.strokeStyle = '#35a9ff'; ctx.lineWidth = 1; ctx.beginPath();
+  ctx.strokeStyle = '#cdd6e0'; ctx.lineWidth = 1; ctx.beginPath();
   pts.forEach((p, i) => { const xx = x(p.t), yy = y(p.db); i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); });
   ctx.stroke();
-  // dramatic everyday-reference lines (amber, labelled on the right)
-  if (refs && refs.length) {
-    ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.textAlign = 'right'; ctx.font = '11px system-ui';
-    for (const r of refs) {
-      if (r.db < dbMin || r.db > dbMax) continue;
-      ctx.strokeStyle = 'rgba(210,153,34,0.7)'; ctx.beginPath();
-      ctx.moveTo(padL, y(r.db)); ctx.lineTo(W - padR, y(r.db)); ctx.stroke();
-      ctx.fillStyle = '#e0b24a'; ctx.fillText(`${r.db} ${unit} · ${r.label}`, W - padR - 4, y(r.db) - 3);
+  // labelled reference lines (quiet room, WHO limit, malfunction, hearing damage)
+  if (lines && lines.length) {
+    ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.font = '11px system-ui';
+    for (const ln of lines) {
+      if (ln.db < dbMin || ln.db > dbMax) continue;
+      ctx.strokeStyle = ln.color; ctx.beginPath();
+      ctx.moveTo(padL, y(ln.db)); ctx.lineTo(W - padR, y(ln.db)); ctx.stroke();
+      ctx.fillStyle = ln.color;
+      ctx.textAlign = ln.align === 'left' ? 'left' : 'right';
+      ctx.fillText(`${ln.db} ${unit} · ${ln.label}`, ln.align === 'left' ? padL + 4 : W - padR - 4, y(ln.db) - 3);
     }
     ctx.setLineDash([]); ctx.textAlign = 'start';
   }
