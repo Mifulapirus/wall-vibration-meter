@@ -69,16 +69,6 @@
       <p id="dashEventsText" class="verdict-line"></p>
     </section>
 
-    <section class="panel">
-      <h2><span class="num">5</span>When the compressors are on or off <span class="dim">detected from wall vibration</span></h2>
-      <p class="explain">The wall vibration itself tells us when a compressor is running. The blue line is how strongly the wall is shaking; green marks the times a compressor was on.</p>
-      <canvas id="bandChart" width="1000" height="220"></canvas>
-      <div class="legend">
-        <span><i class="sw" style="background:#35a9ff"></i> signal strength (times above quiet)</span>
-        <span><i class="sw" style="background:#21c07a"></i> compressor running</span>
-      </div>
-    </section>
-
     <details class="tech">
       <summary>Detailed technical measurements</summary>
 
@@ -112,6 +102,15 @@
       <section class="panel">
         <h2>Compressor vibration strength <span class="dim">dominant-tone amplitude (mg)</span></h2>
         <canvas id="velChart" width="1000" height="260"></canvas>
+      </section>
+
+      <section class="panel">
+        <h2>AC compressor activity <span class="dim">green = a compressor is running (detected from wall vibration)</span></h2>
+        <canvas id="bandChart" width="1000" height="220"></canvas>
+        <div class="legend">
+          <span><i class="sw" style="background:#35a9ff"></i> signal strength (times above quiet)</span>
+          <span><i class="sw" style="background:#21c07a"></i> compressor running</span>
+        </div>
       </section>
 
       <section class="panel">
