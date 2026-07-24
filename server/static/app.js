@@ -179,6 +179,162 @@ async function loadSoundSummary() {
   } catch (e) { detail.textContent = ''; }
 }
 
+// ============================================================================
+// Readable summary cards (non-expert view). Cards 3 & 4 reuse the existing
+// vibration (velChart) and activity (bandChart) draws; cards 1, 2 and 5 are
+// built here. Every card is guarded so one failure never blocks the others.
+// ============================================================================
+const NIGHT_RE = /^eS528L-(night|\d{4}-\d{2}-\d{2})$/;
+const nDate = (s) => { const m = s.match(/(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[1]}-${m[2]}-${m[3]}` : null; };
+const cLeq = (v) => (v.length ? 10 * Math.log10(v.reduce((s, x) => s + Math.pow(10, x / 10), 0) / v.length) : null);
+function fitLine(xs, ys) {
+  const n = xs.length, mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0, sxx = 0; for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; }
+  const m = sxx ? sxy / sxx : 0; return { m, b: my - m * mx };
+}
+const fmtNight = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+async function noiseSeries(src, from, to, limit) {
+  return fetch(`/api/noise?source=${encodeURIComponent(src)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`,
+    { cache: 'no-store' }).then(r => r.json());
+}
+
+async function loadReadableCards() {
+  let srcs;
+  try { srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json()); } catch (e) { return; }
+  loadTrendCard(srcs).catch(() => {});
+  loadNightCards(srcs).catch(() => {});
+}
+
+// Card 1 — nightly LAeq trend vs the WHO lines.
+async function loadTrendCard(srcs) {
+  const cv = el('dashTrend'); if (!cv) return;
+  const ns = srcs.filter(s => NIGHT_RE.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? -1 : 1));
+  const nights = [];
+  for (const s of ns) {
+    const rows = await noiseSeries(s.source, s.first, s.last, 5000);
+    const v = rows.map(r => r.spl_db).filter(x => x != null && x <= 65);
+    if (v.length) nights.push({ iso: nDate(s.source) || new Date(s.last).toISOString().slice(0, 10), leq: cLeq(v) });
+  }
+  if (nights.length < 2) { el('dashTrendText').textContent = 'Not enough recorded nights yet.'; return; }
+  cv.width = 1000; cv.height = 210; const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, 1000, 210);
+  const W = 1000, H = 210, L = 40, R = 14, T = 14, B = 28, pw = W - L - R, ph = H - T - B;
+  const leqs = nights.map(n => n.leq), ymin = 28, ymax = Math.max(52, Math.ceil((Math.max(...leqs) + 2) / 2) * 2);
+  const x = (i) => L + (nights.length === 1 ? 0.5 : i / (nights.length - 1)) * pw;
+  const y = (v) => T + (1 - (v - ymin) / (ymax - ymin)) * ph;
+  ctx.font = '11px system-ui';
+  [[30, '#21c07a', 'WHO healthy for sleep'], [40, '#e6cc00', 'WHO night limit'], [45, '#ff8a1e', 'can wake you']]
+    .forEach(([v, c, lab]) => {
+      if (v < ymin || v > ymax) return;
+      ctx.strokeStyle = c; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(W - R, y(v)); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = c; ctx.textAlign = 'left'; ctx.fillText(`${v} dBA · ${lab}`, L + 4, y(v) - 3);
+    });
+  ctx.fillStyle = '#8b95a3'; ctx.textAlign = 'right';
+  for (let v = 30; v <= ymax; v += 6) ctx.fillText(v, L - 6, y(v) + 3);
+  ctx.textAlign = 'center';
+  nights.forEach((n, i) => ctx.fillText(new Date(n.iso + 'T12:00:00').getDate(), x(i), H - B + 16));
+  ctx.strokeStyle = 'rgba(74,168,255,0.4)'; ctx.lineWidth = 1.4; ctx.beginPath();
+  nights.forEach((n, i) => { const px = x(i), py = y(n.leq); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.stroke();
+  const f = fitLine(nights.map((_, i) => i), leqs);
+  ctx.strokeStyle = '#4aa8ff'; ctx.lineWidth = 2.4; ctx.setLineDash([6, 4]); ctx.beginPath();
+  ctx.moveTo(x(0), y(f.b)); ctx.lineTo(x(nights.length - 1), y(f.b + f.m * (nights.length - 1))); ctx.stroke(); ctx.setLineDash([]);
+  nights.forEach((n, i) => { ctx.fillStyle = '#4aa8ff'; ctx.beginPath(); ctx.arc(x(i), y(n.leq), 3.5, 0, 7); ctx.fill(); });
+  const days = nights.map(n => Date.parse(n.iso + 'T00:00:00Z') / 86400000);
+  const wk = fitLine(days, leqs).m * 7, loud = nights.reduce((m, n) => (n.leq > m.leq ? n : m), nights[0]);
+  el('dashTrendText').innerHTML =
+    `Over <b>${nights.length} nights</b> the loudness is ${wk > 0.1 ? '<b>drifting up</b>' : wk < -0.1 ? '<b>coming down</b>' : 'holding steady'} ` +
+    `(about <b>${wk >= 0 ? '+' : ''}${wk.toFixed(1)} dB per week</b>). Every night has been above the WHO night limit; the loudest was ${fmtNight(loud.iso)} at <b>${loud.leq.toFixed(1)} dBA</b>.`;
+}
+
+// Cards 2 & 5 — last recorded night: the dBC/dBA overlay, and the low-frequency surge.
+async function loadNightCards(srcs) {
+  const ns = srcs.filter(s => NIGHT_RE.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? 1 : -1));
+  if (!ns.length) return;
+  const night = ns[0], date = nDate(night.source) || new Date(night.last).toISOString().slice(0, 10);
+  const dslc = srcs.find(s => s.source === `DSL-C-${date}`);
+  const [aRows, cRows] = await Promise.all([
+    noiseSeries(night.source, night.first, night.last, 8000),
+    dslc ? noiseSeries(dslc.source, dslc.first, dslc.last, 8000) : Promise.resolve([]),
+  ]);
+  drawLastNight(aRows, cRows, date);
+
+  const csrc = dslc ? dslc.source : 'DSL-C';
+  try {
+    const fu = await fetch(`/api/fusion?from=${encodeURIComponent(night.first)}&to=${encodeURIComponent(night.last)}` +
+      `&asource=${encodeURIComponent(night.source)}&csource=${encodeURIComponent(csrc)}&handling_db=65`, { cache: 'no-store' }).then(r => r.json());
+    drawLowfreqCard((fu.sound && fu.sound[night.source]) || {}, (fu.sound && fu.sound[csrc]) || {});
+  } catch (e) { /* leave card 5 empty */ }
+}
+
+function drawLastNight(aRows, cRows, date) {
+  const cv = el('dashLastNight'); if (!cv) return;
+  const A = aRows.map(r => ({ t: Date.parse(r.ts), db: r.spl_db })).filter(p => p.db != null);
+  const C = cRows.map(r => ({ t: Date.parse(r.ts), db: r.spl_db })).filter(p => p.db != null);
+  cv.width = 1000; cv.height = 250; const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, 1000, 250);
+  const W = 1000, H = 250, L = 38, R = 14, T = 12, B = 28, pw = W - L - R, ph = H - T - B;
+  const all = A.concat(C);
+  if (!all.length) { ctx.fillStyle = '#8b95a3'; ctx.font = '13px system-ui'; ctx.fillText('No recorded night yet.', L + 8, H / 2); el('dashLastNightText').textContent = ''; return; }
+  const t0 = Math.min(...all.map(p => p.t)), t1 = Math.max(...all.map(p => p.t));
+  const aClean = A.map(p => p.db).filter(x => x <= 65), aMax = aClean.length ? Math.max(...aClean) : 50;
+  const cMax = C.length ? Math.max(...C.map(p => p.db)) : 60;
+  const ymin = 28, ymax = Math.max(74, Math.ceil((cMax + 2) / 2) * 2);
+  const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * pw;
+  const y = (v) => T + (1 - (v - ymin) / (ymax - ymin)) * ph;
+  ctx.font = '11px system-ui';
+  for (let v = Math.ceil(ymin / 10) * 10; v <= ymax; v += 10) {
+    ctx.strokeStyle = '#20283a'; ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(W - R, y(v)); ctx.stroke();
+    ctx.fillStyle = '#8b95a3'; ctx.textAlign = 'right'; ctx.fillText(v, L - 6, y(v) + 3);
+  }
+  ctx.textAlign = 'center'; ctx.fillStyle = '#8b95a3';
+  for (let i = 0; i <= 6; i++) { const t = t0 + (i / 6) * (t1 - t0); ctx.fillText(new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), x(t), H - B + 15); }
+  const trace = (pts, style, wdt) => { ctx.strokeStyle = style; ctx.lineWidth = wdt; ctx.beginPath(); pts.forEach((p, i) => { const px = x(p.t), py = y(p.db); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.stroke(); };
+  if (A.length) trace(A, 'rgba(74,168,255,0.5)', 1.2);   // dBA, faded, underneath
+  if (C.length) trace(C, '#a78bfa', 1.5);                 // dBC, solid, on top
+  const refs = [
+    { v: 30, c: '#21c07a', lab: 'WHO: healthy for sleep' },
+    { v: 40, c: '#e6cc00', lab: 'WHO: night limit' },
+    { v: 45, c: '#ff8a1e', lab: 'loud enough to wake you' },
+    { v: aMax, c: '#ff5a52', lab: 'last night’s loudest moment' },
+    { v: 70, c: '#e08a5a', lab: 'like a heavy truck idling outside' },
+  ].sort((a, b) => a.v - b.v);
+  ctx.font = '10.5px system-ui';
+  let lastY = 999;
+  refs.forEach(r => {
+    if (r.v < ymin || r.v > ymax) return;
+    ctx.strokeStyle = r.c; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(L, y(r.v)); ctx.lineTo(W - R, y(r.v)); ctx.stroke(); ctx.setLineDash([]);
+    const txt = `${r.lab} (${r.v.toFixed(0)})`, w = ctx.measureText(txt).width;
+    let ly = y(r.v) - 3; if (Math.abs(ly - lastY) < 12) ly = lastY - 12;   // nudge apart if crowded
+    lastY = ly;
+    ctx.fillStyle = 'rgba(14,17,22,0.8)'; ctx.fillRect(W - R - w - 6, ly - 11, w + 6, 13);
+    ctx.fillStyle = r.c; ctx.textAlign = 'right'; ctx.fillText(txt, W - R - 4, ly);
+  });
+  const aLeq = aClean.length ? cLeq(aClean) : null, cLeqV = C.length ? cLeq(C.map(p => p.db)) : null;
+  el('dashLastNightText').innerHTML =
+    `On the night of <b>${fmtNight(date)}</b> the room averaged <b>${aLeq == null ? 'n/a' : aLeq.toFixed(1)} dBA</b> on a standard meter — above the WHO night limit — ` +
+    `while the low-frequency rumble ran around <b>${cLeqV == null ? 'n/a' : cLeqV.toFixed(0)} dBC</b>, in the range of a heavy truck idling just outside the window.`;
+}
+
+function drawLowfreqCard(A, C) {
+  const cv = el('dashLowfreq'); if (!cv) return;
+  cv.width = 1000; cv.height = 150; const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, 1000, 150);
+  ctx.fillStyle = '#8b95a3'; ctx.font = '12px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText('Extra loudness each time the compressor starts', 10, 16);
+  const aD = A.delta_leq, cD = C.delta_leq;
+  if (aD == null || cD == null) { ctx.fillText('Not enough data for the last night yet.', 10, 82); el('dashLowfreqText').textContent = ''; return; }
+  const max = Math.max(aD, cD, 1) * 1.4, baseY = 118, top = 36, bw = 150;
+  const bar = (cx, val, col, lab) => {
+    const h = Math.max(2, (val / max) * (baseY - top));
+    ctx.fillStyle = col; ctx.fillRect(cx, baseY - h, bw, h);
+    ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 17px system-ui'; ctx.textAlign = 'center'; ctx.fillText('+' + val.toFixed(1) + ' dB', cx + bw / 2, baseY - h - 8);
+    ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui'; ctx.fillText(lab, cx + bw / 2, baseY + 16);
+  };
+  bar(250, aD, '#5b6673', 'on a normal meter (dBA)');
+  bar(600, cD, '#a78bfa', 'with the low rumble (dBC)');
+  ctx.strokeStyle = '#262d38'; ctx.beginPath(); ctx.moveTo(10, baseY); ctx.lineTo(990, baseY); ctx.stroke();
+  el('dashLowfreqText').innerHTML =
+    `Each time the compressor kicks on it adds about <b>+${aD.toFixed(1)} dB</b> on a normal meter, but <b>+${cD.toFixed(1)} dB</b> once the low-frequency rumble is counted — ` +
+    `and that rumble is the part that travels through walls and is hardest to sleep through.`;
+}
+
 // Heavier poll: the full time-series + spectra (spectrogram) for the charts.
 async function refreshCharts() {
   try {
@@ -809,8 +965,10 @@ async function boot() {
   await loadSession();               // pause/resume state for the selected device
   await refreshTiles();              // fast: live numbers appear immediately
   await loadNoiseSources();          // show the dB overlay panel if any sources exist
-  loadSoundSummary();                // last-night calibrated LAeq + WHO verdict (first tile)
-  setInterval(loadSoundSummary, 300000);  // refresh every 5 min (new night appears each morning)
+  loadSoundSummary();                // last-night calibrated LAeq + WHO verdict (detail tile)
+  loadReadableCards();               // the five readable summary cards (trend, last night, low-freq)
+  setInterval(loadSoundSummary, 300000);
+  setInterval(loadReadableCards, 300000);  // refresh every 5 min (new night appears each morning)
   setInterval(refreshTiles, 2000);    // live tiles + chart tips every 2 s
   setInterval(loadDevices, 30000);    // device list rarely changes
   setInterval(loadNoiseSources, 30000); // pick up newly-imported noise sources
