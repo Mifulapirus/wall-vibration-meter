@@ -23,7 +23,8 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 from dateutil import parser as dtparser
-from flask import Flask, request, jsonify, render_template
+from flask import (Flask, request, jsonify, render_template, session,
+                   redirect, url_for, render_template_string, abort)
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
@@ -56,6 +57,90 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"timeout": 15}}
 # assets — no restart needed to keep index.html in sync with app.js.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 db = SQLAlchemy(app)
+
+# --- Simple site-wide password gate ----------------------------------------
+# Keeps the dashboard/reports out of casual public view. Devices and import
+# scripts (machine-to-machine POSTs, OTA, health) stay open so the data
+# pipeline is unaffected; every human-facing page needs the shared password.
+SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "bartonhell")
+app.secret_key = os.environ.get(
+    "WALLVIBE_SECRET_KEY", "wv-9f3a1c7e5b2d48a6b0e1f2c3d4e5f60718293a4b5c6d7e8f")
+app.permanent_session_lifetime = timedelta(days=30)
+
+# Endpoints reached without a browser session (device ingest, OTA, streamer,
+# import scripts, health checks) are always open.
+_OPEN_PREFIXES = (
+    "/api/ingest", "/api/session/", "/api/rawcapture", "/api/firmware",
+    "/firmware/", "/api/import/noise", "/api/noise/live", "/health", "/login",
+)
+
+_LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wall Vibe — sign in</title><style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#0f1720; color:#e6edf3; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  form { background:#1b2733; padding:32px 28px; border-radius:14px; width:min(340px,92vw);
+    box-shadow:0 10px 40px rgba(0,0,0,.4); }
+  h1 { font-size:19px; margin:0 0 4px; }
+  p { margin:0 0 20px; color:#8b98a5; font-size:13px; }
+  label { display:block; font-size:12px; color:#8b98a5; margin-bottom:6px; letter-spacing:.03em; }
+  input { width:100%; padding:11px 12px; border-radius:8px; border:1px solid #2a3846;
+    background:#0f1720; color:#e6edf3; font-size:15px; }
+  input:focus { outline:2px solid #4aa8ff; outline-offset:1px; border-color:#4aa8ff; }
+  button { width:100%; margin-top:16px; padding:11px; border:0; border-radius:8px;
+    background:#4aa8ff; color:#03121f; font-size:15px; font-weight:600; cursor:pointer; }
+  button:hover { background:#69b8ff; }
+  .err { color:#f85149; font-size:13px; margin-top:12px; min-height:1em; }
+</style></head><body>
+  <form method="post" action="{{ url_for('login', next=nxt) }}">
+    <h1>Wall Vibration Meter</h1>
+    <p>Enter the site password to continue.</p>
+    <label for="pw">Password</label>
+    <input id="pw" name="password" type="password" autofocus autocomplete="current-password">
+    <button type="submit">Enter</button>
+    <div class="err">{{ err }}</div>
+  </form>
+</body></html>"""
+
+
+@app.before_request
+def _require_login():
+    if session.get("authed") or request.endpoint == "static":
+        return
+    # Scripts/tools may authenticate with the shared password via header or
+    # ?key= instead of a browser session (keeps CLI analysis + imports working).
+    if (request.headers.get("X-Site-Password") == SITE_PASSWORD
+            or request.args.get("key") == SITE_PASSWORD):
+        return
+    p = request.path
+    if any(p == pre or p.startswith(pre) for pre in _OPEN_PREFIXES):
+        return
+    if request.method == "GET":
+        return redirect(url_for("login", next=p))
+    abort(401)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    err = ""
+    nxt = request.args.get("next") or "/"
+    if not nxt.startswith("/"):       # never redirect off-site
+        nxt = "/"
+    if request.method == "POST":
+        if request.form.get("password", "") == SITE_PASSWORD:
+            session.permanent = True
+            session["authed"] = True
+            return redirect(nxt)
+        err = "Incorrect password."
+    return render_template_string(_LOGIN_HTML, err=err, nxt=nxt)
+
+
+@app.get("/logout")
+def logout():
+    session.pop("authed", None)
+    return redirect(url_for("login"))
 
 
 def utcnow():
