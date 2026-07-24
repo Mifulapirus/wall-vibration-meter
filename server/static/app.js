@@ -160,7 +160,7 @@ async function loadSoundSummary() {
     const srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json());
     const nights = srcs.filter(s => /^eS528L-(night|\d{4}-\d{2}-\d{2})$/.test(s.source) && s.count > 100)
       .sort((a, b) => (a.last < b.last ? 1 : -1));
-    if (!nights.length) { detail.textContent = 'no calibrated night yet'; return; }
+    if (!nights.length) { detail.textContent = 'no dBA night yet'; return; }
     const n = nights[0];
     const rows = await fetch(`/api/noise?source=${encodeURIComponent(n.source)}` +
       `&from=${encodeURIComponent(n.first)}&to=${encodeURIComponent(n.last)}&limit=6000`, { cache: 'no-store' })
@@ -355,12 +355,12 @@ function drawLastNight(aRows, cRows, date) {
   if (hasA) {
     const pctOver = aClean.filter(x => x > 45).length / aClean.length * 100;
     el('dashLastNightText').innerHTML =
-      `Even on the calibrated meter (blue), this night stayed above the WHO <b>45 dBA</b> awakening line for <b>${Math.round(pctOver)}%</b> of the night ` +
+      `Even on the dBA meter (blue), this night stayed above the WHO <b>45 dBA</b> awakening line for <b>${Math.round(pctOver)}%</b> of the night ` +
       `and peaked at <b>${aMax.toFixed(0)} dBA</b>, about <b>${Math.round(aMax - 45)} dB over</b> it. The low-frequency rumble (purple) ran higher still, ` +
       `around <b>${cLeqV == null ? 'n/a' : cLeqV.toFixed(0)} dBC</b>.`;
   } else {
     el('dashLastNightText').innerHTML =
-      `No calibrated dBA recording exists for this night, so only the low-frequency rumble (dBC, purple) is shown. ` +
+      `No dBA recording exists for this night, so only the low-frequency rumble (dBC, purple) is shown. ` +
       `It ran around <b>${cLeqV == null ? 'n/a' : cLeqV.toFixed(0)} dBC</b>, in the range of a heavy truck idling just outside the window.`;
   }
 }
@@ -390,13 +390,13 @@ function drawLowfreqSwing(aRows, cRows, date) {
     ctx.fillText(`${quiet.toFixed(0)} to ${loud.toFixed(0)}`, cx + bw / 2, baseY - h - 6);
     ctx.fillText(lab, cx + bw / 2, baseY + 16);
   };
-  bar(250, aQ, aL, '#5b6673', 'calibrated meter (dBA)');
+  bar(250, aQ, aL, '#5b6673', 'dBA');
   bar(600, cQ, cL, '#a78bfa', 'low-frequency rumble (dBC)');
   ctx.strokeStyle = '#262d38'; ctx.beginPath(); ctx.moveTo(10, baseY); ctx.lineTo(990, baseY); ctx.stroke();
   el('dashLowfreqText').innerHTML =
     `On the night of <b>${fmtNight(date)}</b> the low-frequency level jumped from about <b>${cQ.toFixed(0)} dBC</b> in quiet moments to <b>${cL.toFixed(0)} dBC</b> when the compressor kicked in, ` +
     `a swing of <b>${cD.toFixed(0)} dB</b>. A sudden jump that large is what jolts you awake, and the low-frequency part carries most of it ` +
-    `(the calibrated dBA swing is <b>${aD == null ? 'n/a' : '+' + aD.toFixed(0) + ' dB'}</b>).`;
+    `(the dBA swing is <b>${aD == null ? 'n/a' : '+' + aD.toFixed(0) + ' dB'}</b>).`;
 }
 
 // Card 4 — recurring compressor events (compressor-on bar + summary).
