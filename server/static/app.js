@@ -328,8 +328,10 @@ function drawLowfreqSwing(aRows, cRows) {
   ctx.fillStyle = '#8b95a3'; ctx.font = '12px system-ui'; ctx.textAlign = 'left';
   ctx.fillText('Jump from a quiet moment to a loud compressor onset', 10, 16);
   if (!cV.length) { ctx.fillText('Not enough data for the last night yet.', 10, 88); el('dashLowfreqText').textContent = ''; return; }
-  const aQ = cPct(aV, 5), aL = cPct(aV, 95), aD = (aQ != null && aL != null) ? aL - aQ : null;
-  const cQ = cPct(cV, 5), cL = cPct(cV, 95), cD = cL - cQ;
+  // 2nd vs 98th percentile: a genuine quiet moment vs a loud onset (each covers
+  // several minutes across the night, so it is the real swing, not a lone spike).
+  const aQ = cPct(aV, 2), aL = cPct(aV, 98), aD = (aQ != null && aL != null) ? aL - aQ : null;
+  const cQ = cPct(cV, 2), cL = cPct(cV, 98), cD = cL - cQ;
   const max = Math.max(cD, aD || 0, 1) * 1.45, baseY = 132, top = 42, bw = 150;
   const bar = (cx, quiet, loud, col, lab) => {
     if (quiet == null) return;
