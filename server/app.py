@@ -1293,6 +1293,11 @@ def washer_view():
     return render_template("washer.html")
 
 
+@app.get("/trends")
+def trends_view():
+    return render_template("trends.html")
+
+
 # --- Maintenance -----------------------------------------------------------
 def prune_loop():
     while RETENTION_DAYS > 0:

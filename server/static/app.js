@@ -151,6 +151,34 @@ function updateSoundTile(n) {
   }
 }
 
+// Sound-level summary tile — the most recent calibrated eS528L night, reduced to
+// LAeq with a WHO verdict, so the dashboard headlines the habitability status.
+async function loadSoundSummary() {
+  const leqEl = el('ssLeq'), badge = el('ssBadge'), detail = el('ssDetail');
+  if (!leqEl) return;
+  try {
+    const srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json());
+    const nights = srcs.filter(s => /^eS528L-(night|\d{4}-\d{2}-\d{2})$/.test(s.source) && s.count > 100)
+      .sort((a, b) => (a.last < b.last ? 1 : -1));
+    if (!nights.length) { detail.textContent = '— no calibrated night yet'; return; }
+    const n = nights[0];
+    const rows = await fetch(`/api/noise?source=${encodeURIComponent(n.source)}` +
+      `&from=${encodeURIComponent(n.first)}&to=${encodeURIComponent(n.last)}&limit=6000`, { cache: 'no-store' })
+      .then(r => r.json());
+    const v = rows.map(r => r.spl_db).filter(x => x != null && x <= 65);   // drop handling/self-noise
+    if (!v.length) { detail.textContent = ''; return; }
+    const leq = 10 * Math.log10(v.reduce((s, x) => s + Math.pow(10, x / 10), 0) / v.length);
+    const sorted = [...v].sort((a, b) => a - b), l90 = sorted[Math.floor((sorted.length - 1) * 0.10)];
+    leqEl.textContent = leq.toFixed(1);
+    let label = 'OK', col = '#21c07a';
+    if (leq > 40) { label = 'POOR'; col = '#ff6b60'; }
+    else if (leq > 30) { label = 'MARGINAL'; col = '#e6cc00'; }
+    badge.textContent = label; badge.style.color = col; badge.style.borderColor = col;
+    const d = new Date(n.last).toLocaleDateString([], { month: 'short', day: 'numeric' });
+    detail.textContent = `· ${d} · floor ${l90.toFixed(0)} dBA · WHO night 40`;
+  } catch (e) { detail.textContent = ''; }
+}
+
 // Heavier poll: the full time-series + spectra (spectrogram) for the charts.
 async function refreshCharts() {
   try {
@@ -781,6 +809,8 @@ async function boot() {
   await loadSession();               // pause/resume state for the selected device
   await refreshTiles();              // fast: live numbers appear immediately
   await loadNoiseSources();          // show the dB overlay panel if any sources exist
+  loadSoundSummary();                // last-night calibrated LAeq + WHO verdict (first tile)
+  setInterval(loadSoundSummary, 300000);  // refresh every 5 min (new night appears each morning)
   setInterval(refreshTiles, 2000);    // live tiles + chart tips every 2 s
   setInterval(loadDevices, 30000);    // device list rarely changes
   setInterval(loadNoiseSources, 30000); // pick up newly-imported noise sources

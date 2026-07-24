@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Rooftop-AC Noise Trends{% endblock %}
+{% block heading %}Rooftop-AC noise <span class="dim">trends</span>{% endblock %}
+
+{% block head %}
+  <style>
+    .verdict { border-radius: 14px; padding: 20px 24px; margin-bottom: 20px; border: 1px solid var(--line); background: var(--panel); border-left: 4px solid var(--muted); }
+    .verdict.up   { background: #2a1416; border-color: #ff4d4d55; border-left-color: #ff6b60; }
+    .verdict.down { background: #10241a; border-color: #21c07a55; border-left-color: #3fb950; }
+    .verdict .badge2 { font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+    .verdict.up .badge2 { color: #ff6b60; } .verdict.down .badge2 { color: #3fb950; }
+    .verdict h2 { margin: 7px 0 8px; font-size: 23px; }
+    .verdict p { margin: 0; font-size: 14.5px; color: var(--text); line-height: 1.5; }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 22px; }
+    .rcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .rcard .n { font-size: 28px; font-weight: 800; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+    .rcard .n.up { color: #ff6b60; } .rcard .n.down { color: #3fb950; }
+    .rcard .n small { font-size: 14px; color: var(--muted); font-weight: 600; }
+    .rcard .l { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.35; }
+
+    .sec { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+    .sec h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 0 0 4px; }
+    .sec .cap { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; }
+
+    /* One source of truth for the three series colours — legend swatches and the
+       SVG strokes/fills below must use these exact hexes so they always match. */
+    .legend { display: flex; flex-wrap: wrap; gap: 14px 18px; margin: 2px 0 10px; font-size: 12.5px; color: #b7c1cd; }
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .legend .dash { width: 20px; border-top: 3px dashed #c3ccd6; display: inline-block; }
+    .c-leq { background: #4aa8ff; } .c-l50 { background: #33d6b8; } .c-l90 { background: #9aa7b5; }
+
+    .chart-scroll { overflow-x: auto; }
+    #chartA, #chartC { display: block; width: 100%; height: auto; min-width: 460px; }
+    svg text { fill: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+    .grid { stroke: var(--line); stroke-width: 1; }
+    .actual { fill: none; stroke-width: 1.3; opacity: .34; }
+    .trend { fill: none; stroke-width: 2.6; stroke-dasharray: 6 4; }
+    .who { stroke-width: 1.3; stroke-dasharray: 4 4; }
+    .who-lab { font-size: 10.5px; }
+    .s-leq { stroke: #4aa8ff; } .f-leq { fill: #4aa8ff; }
+    .s-l50 { stroke: #33d6b8; } .f-l50 { fill: #33d6b8; }
+    .s-l90 { stroke: #9aa7b5; } .f-l90 { fill: #9aa7b5; }
+    .who-45 { stroke: #ff4d4d; fill: #ff4d4d; } .who-40 { stroke: #ff8a1e; fill: #ff8a1e; }
+    .pt { stroke: var(--panel); stroke-width: 1.4; }
+
+    table.trend-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .trend-tbl th, .trend-tbl td { padding: 7px 9px; text-align: right; border-bottom: 1px solid var(--line); }
+    .trend-tbl th:first-child, .trend-tbl td:first-child { text-align: left; }
+    .trend-tbl thead th { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+    .trend-tbl tbody td { font-variant-numeric: tabular-nums; }
+    .trend-tbl tbody tr:last-child td { border-bottom: 0; font-weight: 800; }
+    .assume { font-size: 12px; color: var(--muted); line-height: 1.55; }
+  </style>
+{% endblock %}
+
+{% block content %}
+    <div id="verdict" class="verdict"><div class="badge2">…</div><h2>Analyzing every recorded night…</h2><p></p></div>
+
+    <div class="stats" id="stats"></div>
+
+    <section class="sec">
+      <h3>A-weighted level <span class="dim">— calibrated eS528L</span></h3>
+      <p class="cap">WHO puts a bedroom at 30&nbsp;dBA for undisturbed sleep, with events under 45&nbsp;dBA.</p>
+      <div class="legend">
+        <span><i class="dot c-leq"></i> LAeq (energy avg)</span>
+        <span><i class="dot c-l50"></i> Median (L50)</span>
+        <span><i class="dot c-l90"></i> Floor / AC-off (L90)</span>
+        <span><i class="dash"></i> fitted trend</span>
+      </div>
+      <div class="chart-scroll"><svg id="chartA" viewBox="0 0 720 320" role="img" aria-label="A-weighted nightly trend"></svg></div>
+    </section>
+
+    <section class="sec">
+      <h3>C-weighted level <span class="dim">— DSL meter</span></h3>
+      <p class="cap">Captures the low-frequency compressor rumble the A-scale discounts. Placement varied, so read the direction, not the exact numbers.</p>
+      <div class="legend">
+        <span><i class="dot c-leq"></i> LCeq</span>
+        <span><i class="dot c-l50"></i> Median (L50)</span>
+        <span><i class="dot c-l90"></i> Floor (L90)</span>
+        <span><i class="dash"></i> fitted trend</span>
+      </div>
+      <div class="chart-scroll"><svg id="chartC" viewBox="0 0 720 320" role="img" aria-label="C-weighted nightly trend"></svg></div>
+    </section>
+
+    <section class="sec">
+      <h3>Per-night levels</h3>
+      <table class="trend-tbl">
+        <thead><tr><th>Night</th><th>LAeq</th><th>LA50</th><th>LA90</th><th>LCeq</th><th>LC50</th><th>LC90</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </section>
+
+    <section class="sec">
+      <h3>Method</h3>
+      <p class="assume" id="method"></p>
+    </section>
+
+    <footer id="meta"></footer>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/static/trends.js"></script>
+{% endblock %}

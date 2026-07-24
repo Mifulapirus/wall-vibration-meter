@@ -24,6 +24,10 @@
 
 {% block content %}
     <section class="tiles">
+      <div class="tile" id="soundSummaryTile">
+        <div class="value"><span id="ssLeq">--</span><small>dBA</small> <span id="ssBadge" class="badge">—</span></div>
+        <div class="label">Last night, calibrated <span id="ssDetail" class="dim"></span></div>
+      </div>
       <div class="tile" id="velTile">
         <div class="value"><span id="vel">--</span><small>mg</small></div>
         <div class="label">Compressor strength <span id="zone" class="badge">—</span></div>
