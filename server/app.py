@@ -1298,6 +1298,11 @@ def trends_view():
     return render_template("trends.html")
 
 
+@app.get("/repair")
+def repair_view():
+    return render_template("repair.html")
+
+
 # --- Maintenance -----------------------------------------------------------
 def prune_loop():
     while RETENTION_DAYS > 0:
