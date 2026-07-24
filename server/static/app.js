@@ -202,29 +202,43 @@ async function noiseSeries(src, from, to, limit) {
     { cache: 'no-store' }).then(r => r.json());
 }
 
-let dashSources = null;
+let dashSources = null, nightIndex = [];
 async function loadReadableCards() {
   try { dashSources = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json()); } catch (e) { return; }
-  populateNightSelector(dashSources);
+  nightIndex = buildNightIndex(dashSources);
+  populateNightSelector();
   loadTrendCard(dashSources).catch(() => {});
-  loadNightCards(dashSources).catch(() => {});
+  loadNightCards().catch(() => {});
+}
+
+// One entry per recorded night, holding whichever meters exist for that date:
+// the calibrated eS528L (dBA) and/or the DSL (dBC). Newest first.
+function buildNightIndex(srcs) {
+  const m = new Map();
+  const get = (d) => { if (!m.has(d)) m.set(d, { date: d, a: null, c: null }); return m.get(d); };
+  srcs.forEach(s => {
+    if (s.count <= 100) return;
+    let mm = s.source.match(/^eS528L-(?:night|(\d{4}-\d{2}-\d{2}))$/);
+    if (mm) { get(mm[1] || new Date(s.last).toISOString().slice(0, 10)).a = s; return; }
+    mm = s.source.match(/^DSL-C-(\d{4}-\d{2}-\d{2})$/);
+    if (mm) { get(mm[1]).c = s; }
+  });
+  return [...m.values()].sort((x, y) => (x.date < y.date ? 1 : -1));
 }
 
 // Night picker for cards 2-4. Preserves the current choice across refreshes.
-function populateNightSelector(srcs) {
+function populateNightSelector() {
   const sel = el('nightSel'); if (!sel) return;
-  const ns = srcs.filter(s => NIGHT_RE.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? 1 : -1));
   const cur = sel.value;
   sel.innerHTML = '';
-  ns.forEach((s, i) => {
+  nightIndex.forEach(n => {
     const o = document.createElement('option');
-    const iso = nDate(s.source) || new Date(s.last).toISOString().slice(0, 10);
-    o.value = s.source;
-    o.textContent = fmtNight(iso) + (iso === todayISO() ? ' · last night' : '');
+    o.value = n.date;
+    o.textContent = fmtNight(n.date) + (n.date === todayISO() ? ' · last night' : '') + (n.a ? '' : ' (dBC only)');
     sel.appendChild(o);
   });
   if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
-  else if (ns.length) sel.value = ns[0].source;
+  else if (nightIndex.length) sel.value = nightIndex[0].date;
 }
 
 // Card 1 — nightly LAeq trend vs the WHO lines.
@@ -269,27 +283,27 @@ async function loadTrendCard(srcs) {
 
 // Cards 2, 3 & 4 — last recorded night: the dBC/dBA overlay, the quiet-to-loud
 // low-frequency swing, and the recurring compressor events (ported from /report).
-async function loadNightCards(srcs) {
-  const ns = srcs.filter(s => NIGHT_RE.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? 1 : -1));
-  if (!ns.length) return;
+async function loadNightCards() {
+  if (!nightIndex.length) return;
   const sel = el('nightSel');
-  const night = (sel && ns.find(s => s.source === sel.value)) || ns[0];
-  const date = nDate(night.source) || new Date(night.last).toISOString().slice(0, 10);
-  const isLastNight = date === todayISO();
-  if (el('nightHeading')) el('nightHeading').textContent = isLastNight ? `(${fmtNight(date)} · last night)` : `(${fmtNight(date)})`;
-  const dslc = srcs.find(s => s.source === `DSL-C-${date}`);
+  const night = nightIndex.find(n => n.date === (sel && sel.value)) || nightIndex[0];
+  const date = night.date;
+  if (el('nightHeading')) el('nightHeading').textContent =
+    (date === todayISO() ? `(${fmtNight(date)} · last night)` : `(${fmtNight(date)})`) + (night.a ? '' : ' · dBC only');
   const [aRows, cRows] = await Promise.all([
-    noiseSeries(night.source, night.first, night.last, 8000),
-    dslc ? noiseSeries(dslc.source, dslc.first, dslc.last, 8000) : Promise.resolve([]),
+    night.a ? noiseSeries(night.a.source, night.a.first, night.a.last, 8000) : Promise.resolve([]),
+    night.c ? noiseSeries(night.c.source, night.c.first, night.c.last, 8000) : Promise.resolve([]),
   ]);
   drawLastNight(aRows, cRows, date);
   drawLowfreqSwing(aRows, cRows, date);
 
-  const csrc = dslc ? dslc.source : 'DSL-C';
+  const win = night.a || night.c;
+  const asrc = night.a ? night.a.source : (night.c ? night.c.source : '');
+  const csrc = night.c ? night.c.source : 'DSL-C';
   try {
-    const fu = await fetch(`/api/fusion?from=${encodeURIComponent(night.first)}&to=${encodeURIComponent(night.last)}` +
-      `&asource=${encodeURIComponent(night.source)}&csource=${encodeURIComponent(csrc)}&handling_db=65`, { cache: 'no-store' }).then(r => r.json());
-    drawEventsCard(fu);
+    const fu = await fetch(`/api/fusion?from=${encodeURIComponent(win.first)}&to=${encodeURIComponent(win.last)}` +
+      `&asource=${encodeURIComponent(asrc)}&csource=${encodeURIComponent(csrc)}&handling_db=65`, { cache: 'no-store' }).then(r => r.json());
+    drawEventsCard(fu, night.a != null);
   } catch (e) { /* leave events card empty */ }
 }
 
@@ -317,13 +331,15 @@ function drawLastNight(aRows, cRows, date) {
   const trace = (pts, style, wdt) => { ctx.strokeStyle = style; ctx.lineWidth = wdt; ctx.beginPath(); pts.forEach((p, i) => { const px = x(p.t), py = y(p.db); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.stroke(); };
   if (A.length) trace(A, 'rgba(74,168,255,0.5)', 1.2);   // dBA, faded, underneath
   if (C.length) trace(C, '#a78bfa', 1.5);                 // dBC, solid, on top
+  const hasA = aClean.length > 0;
   const refs = [
     { v: 30, c: '#21c07a', lab: 'WHO: healthy for sleep' },
     { v: 40, c: '#e6cc00', lab: 'WHO: night limit' },
     { v: 45, c: '#ff8a1e', lab: 'loud enough to wake you' },
-    { v: aMax, c: '#ff5a52', lab: 'loudest moment (calibrated)' },
     { v: 70, c: '#e08a5a', lab: 'like a heavy truck idling outside' },
-  ].sort((a, b) => a.v - b.v);
+  ];
+  if (hasA) refs.push({ v: aMax, c: '#ff5a52', lab: 'loudest moment (dBA)' });
+  refs.sort((a, b) => a.v - b.v);
   ctx.font = '10.5px system-ui';
   let lastY = 999;
   refs.forEach(r => {
@@ -335,12 +351,18 @@ function drawLastNight(aRows, cRows, date) {
     ctx.fillStyle = 'rgba(14,17,22,0.8)'; ctx.fillRect(W - R - w - 6, ly - 11, w + 6, 13);
     ctx.fillStyle = r.c; ctx.textAlign = 'right'; ctx.fillText(txt, W - R - 4, ly);
   });
-  const pctOver = aClean.length ? aClean.filter(x => x > 45).length / aClean.length * 100 : 0;
   const cLeqV = C.length ? cLeq(C.map(p => p.db)) : null;
-  el('dashLastNightText').innerHTML =
-    `Even on the calibrated meter (blue), last night stayed above the WHO <b>45 dBA</b> awakening line for <b>${Math.round(pctOver)}%</b> of the night ` +
-    `and peaked at <b>${aMax.toFixed(0)} dBA</b>, about <b>${Math.round(aMax - 45)} dB over</b> it. The low-frequency rumble (purple) ran higher still, ` +
-    `around <b>${cLeqV == null ? 'n/a' : cLeqV.toFixed(0)} dBC</b>.`;
+  if (hasA) {
+    const pctOver = aClean.filter(x => x > 45).length / aClean.length * 100;
+    el('dashLastNightText').innerHTML =
+      `Even on the calibrated meter (blue), this night stayed above the WHO <b>45 dBA</b> awakening line for <b>${Math.round(pctOver)}%</b> of the night ` +
+      `and peaked at <b>${aMax.toFixed(0)} dBA</b>, about <b>${Math.round(aMax - 45)} dB over</b> it. The low-frequency rumble (purple) ran higher still, ` +
+      `around <b>${cLeqV == null ? 'n/a' : cLeqV.toFixed(0)} dBC</b>.`;
+  } else {
+    el('dashLastNightText').innerHTML =
+      `No calibrated dBA recording exists for this night, so only the low-frequency rumble (dBC, purple) is shown. ` +
+      `It ran around <b>${cLeqV == null ? 'n/a' : cLeqV.toFixed(0)} dBC</b>, in the range of a heavy truck idling just outside the window.`;
+  }
 }
 
 // Card 3 — the swing from a quiet moment to a loud onset (5th vs 95th percentile),
@@ -377,8 +399,8 @@ function drawLowfreqSwing(aRows, cRows, date) {
     `(the calibrated dBA swing is <b>${aD == null ? 'n/a' : '+' + aD.toFixed(0) + ' dB'}</b>).`;
 }
 
-// Card 4 — recurring compressor events last night (compressor-on bar + summary).
-function drawEventsCard(d) {
+// Card 4 — recurring compressor events (compressor-on bar + summary).
+function drawEventsCard(d, hasA) {
   const cv = el('dashEvents'); if (!cv || !d || !d.window) return;
   cv.width = 1000; cv.height = 46; const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, 1000, 46);
   const W = 1000, t0 = Date.parse(d.window.from), t1 = Date.parse(d.window.to);
@@ -392,13 +414,17 @@ function drawEventsCard(d) {
   ctx.fillText(new Date(t0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 0, 45);
   ctx.textAlign = 'end'; ctx.fillText(new Date(t1).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), W, 45); ctx.textAlign = 'start';
   ctx.fillText('red = compressor running', 0, 9);
-  const c = d.compressor || {}, A = (d.sound && d.weighting && d.sound[d.weighting.a_source]) || {};
+  const c = d.compressor || {};
+  const A = (d.sound && d.weighting && d.sound[d.weighting.a_source]) || {};
+  const C = (d.sound && d.weighting && d.sound[d.weighting.c_source]) || {};
   const every = c.cycles_per_hour ? Math.round(60 / c.cycles_per_hour) : null;
+  const peak = (hasA && A.lmax != null) ? `<b>${A.lmax.toFixed(0)} dBA</b>`
+    : (C.lmax != null ? `<b>${C.lmax.toFixed(0)} dBC</b>` : 'loud onsets');
   const txtEl = el('dashEventsText'); if (!txtEl) return;
   txtEl.innerHTML = (c.on_periods != null)
     ? `The compressor switched on <b>${c.on_periods} times</b> through the night, about once every <b>${every} minutes</b>, ` +
       `and the room rarely settled (the typical quiet gap was about <b>${c.mean_off_min == null ? 'n/a' : Math.round(c.mean_off_min) + ' min'}</b>). ` +
-      `Each onset drove the level to peaks near <b>${A.lmax != null ? A.lmax.toFixed(0) + ' dBA' : 'n/a'}</b>. Repeated loud onsets like this are the pattern most linked to waking during the night.`
+      `Each onset drove the level to peaks near ${peak}. Repeated loud onsets like this are the pattern most linked to waking during the night.`
     : '';
 }
 
@@ -1025,7 +1051,7 @@ function onControlsChange() {
 el('device').addEventListener('change', () => { onControlsChange(); loadSession(); });
 el('range').addEventListener('change', onControlsChange);
 el('sessionBtn').addEventListener('click', toggleSession);
-{ const ns = el('nightSel'); if (ns) ns.addEventListener('change', () => { if (dashSources) loadNightCards(dashSources); }); }
+{ const ns = el('nightSel'); if (ns) ns.addEventListener('change', () => { if (nightIndex.length) loadNightCards(); }); }
 
 async function boot() {
   populateRanges();
