@@ -160,7 +160,7 @@ async function loadSoundSummary() {
     const srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json());
     const nights = srcs.filter(s => /^eS528L-(night|\d{4}-\d{2}-\d{2})$/.test(s.source) && s.count > 100)
       .sort((a, b) => (a.last < b.last ? 1 : -1));
-    if (!nights.length) { detail.textContent = '— no calibrated night yet'; return; }
+    if (!nights.length) { detail.textContent = 'no calibrated night yet'; return; }
     const n = nights[0];
     const rows = await fetch(`/api/noise?source=${encodeURIComponent(n.source)}` +
       `&from=${encodeURIComponent(n.first)}&to=${encodeURIComponent(n.last)}&limit=6000`, { cache: 'no-store' })
@@ -187,6 +187,7 @@ async function loadSoundSummary() {
 const NIGHT_RE = /^eS528L-(night|\d{4}-\d{2}-\d{2})$/;
 const nDate = (s) => { const m = s.match(/(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[1]}-${m[2]}-${m[3]}` : null; };
 const cLeq = (v) => (v.length ? 10 * Math.log10(v.reduce((s, x) => s + Math.pow(10, x / 10), 0) / v.length) : null);
+const cPct = (v, p) => { if (!v.length) return null; const s = [...v].sort((a, b) => a - b); const k = (s.length - 1) * p / 100; const lo = Math.floor(k), hi = Math.min(lo + 1, s.length - 1); return s[lo] + (s[hi] - s[lo]) * (k - lo); };
 function fitLine(xs, ys) {
   const n = xs.length, mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
   let sxy = 0, sxx = 0; for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; }
@@ -245,7 +246,8 @@ async function loadTrendCard(srcs) {
     `(about <b>${wk >= 0 ? '+' : ''}${wk.toFixed(1)} dB per week</b>). Every night has been above the WHO night limit; the loudest was ${fmtNight(loud.iso)} at <b>${loud.leq.toFixed(1)} dBA</b>.`;
 }
 
-// Cards 2 & 5 — last recorded night: the dBC/dBA overlay, and the low-frequency surge.
+// Cards 2, 3 & 4 — last recorded night: the dBC/dBA overlay, the quiet-to-loud
+// low-frequency swing, and the recurring compressor events (ported from /report).
 async function loadNightCards(srcs) {
   const ns = srcs.filter(s => NIGHT_RE.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? 1 : -1));
   if (!ns.length) return;
@@ -256,13 +258,14 @@ async function loadNightCards(srcs) {
     dslc ? noiseSeries(dslc.source, dslc.first, dslc.last, 8000) : Promise.resolve([]),
   ]);
   drawLastNight(aRows, cRows, date);
+  drawLowfreqSwing(aRows, cRows);
 
   const csrc = dslc ? dslc.source : 'DSL-C';
   try {
     const fu = await fetch(`/api/fusion?from=${encodeURIComponent(night.first)}&to=${encodeURIComponent(night.last)}` +
       `&asource=${encodeURIComponent(night.source)}&csource=${encodeURIComponent(csrc)}&handling_db=65`, { cache: 'no-store' }).then(r => r.json());
-    drawLowfreqCard((fu.sound && fu.sound[night.source]) || {}, (fu.sound && fu.sound[csrc]) || {});
-  } catch (e) { /* leave card 5 empty */ }
+    drawEventsCard(fu);
+  } catch (e) { /* leave events card empty */ }
 }
 
 function drawLastNight(aRows, cRows, date) {
@@ -293,7 +296,7 @@ function drawLastNight(aRows, cRows, date) {
     { v: 30, c: '#21c07a', lab: 'WHO: healthy for sleep' },
     { v: 40, c: '#e6cc00', lab: 'WHO: night limit' },
     { v: 45, c: '#ff8a1e', lab: 'loud enough to wake you' },
-    { v: aMax, c: '#ff5a52', lab: 'last night’s loudest moment' },
+    { v: aMax, c: '#ff5a52', lab: 'loudest moment (calibrated)' },
     { v: 70, c: '#e08a5a', lab: 'like a heavy truck idling outside' },
   ].sort((a, b) => a.v - b.v);
   ctx.font = '10.5px system-ui';
@@ -307,32 +310,69 @@ function drawLastNight(aRows, cRows, date) {
     ctx.fillStyle = 'rgba(14,17,22,0.8)'; ctx.fillRect(W - R - w - 6, ly - 11, w + 6, 13);
     ctx.fillStyle = r.c; ctx.textAlign = 'right'; ctx.fillText(txt, W - R - 4, ly);
   });
-  const aLeq = aClean.length ? cLeq(aClean) : null, cLeqV = C.length ? cLeq(C.map(p => p.db)) : null;
+  const pctOver = aClean.length ? aClean.filter(x => x > 45).length / aClean.length * 100 : 0;
+  const cLeqV = C.length ? cLeq(C.map(p => p.db)) : null;
   el('dashLastNightText').innerHTML =
-    `On the night of <b>${fmtNight(date)}</b> the room averaged <b>${aLeq == null ? 'n/a' : aLeq.toFixed(1)} dBA</b> on a standard meter — above the WHO night limit — ` +
-    `while the low-frequency rumble ran around <b>${cLeqV == null ? 'n/a' : cLeqV.toFixed(0)} dBC</b>, in the range of a heavy truck idling just outside the window.`;
+    `Even on the calibrated meter (blue), last night stayed above the WHO <b>45 dBA</b> awakening line for <b>${Math.round(pctOver)}%</b> of the night ` +
+    `and peaked at <b>${aMax.toFixed(0)} dBA</b>, about <b>${Math.round(aMax - 45)} dB over</b> it. The low-frequency rumble (purple) ran higher still, ` +
+    `around <b>${cLeqV == null ? 'n/a' : cLeqV.toFixed(0)} dBC</b>.`;
 }
 
-function drawLowfreqCard(A, C) {
+// Card 3 — the swing from a quiet moment to a loud onset (5th vs 95th percentile),
+// the difference that jolts you awake. The dBC (low-frequency) swing is the bigger one.
+function drawLowfreqSwing(aRows, cRows) {
   const cv = el('dashLowfreq'); if (!cv) return;
-  cv.width = 1000; cv.height = 150; const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, 1000, 150);
+  const aV = aRows.map(r => r.spl_db).filter(x => x != null && x <= 65);
+  const cV = cRows.map(r => r.spl_db).filter(x => x != null);
+  cv.width = 1000; cv.height = 160; const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, 1000, 160);
   ctx.fillStyle = '#8b95a3'; ctx.font = '12px system-ui'; ctx.textAlign = 'left';
-  ctx.fillText('Extra loudness each time the compressor starts', 10, 16);
-  const aD = A.delta_leq, cD = C.delta_leq;
-  if (aD == null || cD == null) { ctx.fillText('Not enough data for the last night yet.', 10, 82); el('dashLowfreqText').textContent = ''; return; }
-  const max = Math.max(aD, cD, 1) * 1.4, baseY = 118, top = 36, bw = 150;
-  const bar = (cx, val, col, lab) => {
-    const h = Math.max(2, (val / max) * (baseY - top));
+  ctx.fillText('Jump from a quiet moment to a loud compressor onset', 10, 16);
+  if (!cV.length) { ctx.fillText('Not enough data for the last night yet.', 10, 88); el('dashLowfreqText').textContent = ''; return; }
+  const aQ = cPct(aV, 5), aL = cPct(aV, 95), aD = (aQ != null && aL != null) ? aL - aQ : null;
+  const cQ = cPct(cV, 5), cL = cPct(cV, 95), cD = cL - cQ;
+  const max = Math.max(cD, aD || 0, 1) * 1.45, baseY = 132, top = 42, bw = 150;
+  const bar = (cx, quiet, loud, col, lab) => {
+    if (quiet == null) return;
+    const d = loud - quiet, h = Math.max(2, (d / max) * (baseY - top));
     ctx.fillStyle = col; ctx.fillRect(cx, baseY - h, bw, h);
-    ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 17px system-ui'; ctx.textAlign = 'center'; ctx.fillText('+' + val.toFixed(1) + ' dB', cx + bw / 2, baseY - h - 8);
-    ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui'; ctx.fillText(lab, cx + bw / 2, baseY + 16);
+    ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 17px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('+' + d.toFixed(0) + ' dB', cx + bw / 2, baseY - h - 21);
+    ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui';
+    ctx.fillText(`${quiet.toFixed(0)} to ${loud.toFixed(0)}`, cx + bw / 2, baseY - h - 6);
+    ctx.fillText(lab, cx + bw / 2, baseY + 16);
   };
-  bar(250, aD, '#5b6673', 'on a normal meter (dBA)');
-  bar(600, cD, '#a78bfa', 'with the low rumble (dBC)');
+  bar(250, aQ, aL, '#5b6673', 'calibrated meter (dBA)');
+  bar(600, cQ, cL, '#a78bfa', 'low-frequency rumble (dBC)');
   ctx.strokeStyle = '#262d38'; ctx.beginPath(); ctx.moveTo(10, baseY); ctx.lineTo(990, baseY); ctx.stroke();
   el('dashLowfreqText').innerHTML =
-    `Each time the compressor kicks on it adds about <b>+${aD.toFixed(1)} dB</b> on a normal meter, but <b>+${cD.toFixed(1)} dB</b> once the low-frequency rumble is counted — ` +
-    `and that rumble is the part that travels through walls and is hardest to sleep through.`;
+    `Last night the low-frequency level jumped from about <b>${cQ.toFixed(0)} dBC</b> in quiet moments to <b>${cL.toFixed(0)} dBC</b> when the compressor kicked in, ` +
+    `a swing of <b>${cD.toFixed(0)} dB</b>. A sudden jump that large is what jolts you awake, and the low-frequency part carries most of it ` +
+    `(the calibrated dBA swing is <b>${aD == null ? 'n/a' : '+' + aD.toFixed(0) + ' dB'}</b>).`;
+}
+
+// Card 4 — recurring compressor events last night (compressor-on bar + summary).
+function drawEventsCard(d) {
+  const cv = el('dashEvents'); if (!cv || !d || !d.window) return;
+  cv.width = 1000; cv.height = 46; const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, 1000, 46);
+  const W = 1000, t0 = Date.parse(d.window.from), t1 = Date.parse(d.window.to);
+  const x = (t) => (t - t0) / Math.max(1, t1 - t0) * W;
+  ctx.fillStyle = 'rgba(33,192,122,0.4)'; ctx.fillRect(0, 12, W, 22);   // green base = quiet
+  ctx.fillStyle = 'rgba(255,77,77,0.9)';                                // red = compressor running
+  ((d.compressor && d.compressor.on_intervals) || []).forEach(([s, e]) => {
+    const xs = x(Date.parse(s)); ctx.fillRect(xs, 12, Math.max(1, x(Date.parse(e)) - xs), 22);
+  });
+  ctx.fillStyle = '#8b95a3'; ctx.font = '11px system-ui'; ctx.textAlign = 'start';
+  ctx.fillText(new Date(t0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 0, 45);
+  ctx.textAlign = 'end'; ctx.fillText(new Date(t1).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), W, 45); ctx.textAlign = 'start';
+  ctx.fillText('red = compressor running', 0, 9);
+  const c = d.compressor || {}, A = (d.sound && d.weighting && d.sound[d.weighting.a_source]) || {};
+  const every = c.cycles_per_hour ? Math.round(60 / c.cycles_per_hour) : null;
+  const txtEl = el('dashEventsText'); if (!txtEl) return;
+  txtEl.innerHTML = (c.on_periods != null)
+    ? `The compressor switched on <b>${c.on_periods} times</b> through the night, about once every <b>${every} minutes</b>, ` +
+      `and the room rarely settled (the typical quiet gap was about <b>${c.mean_off_min == null ? 'n/a' : Math.round(c.mean_off_min) + ' min'}</b>). ` +
+      `Each onset drove the level to peaks near <b>${A.lmax != null ? A.lmax.toFixed(0) + ' dBA' : 'n/a'}</b>. Repeated loud onsets like this are the pattern most linked to waking during the night.`
+    : '';
 }
 
 // Heavier poll: the full time-series + spectra (spectrogram) for the charts.

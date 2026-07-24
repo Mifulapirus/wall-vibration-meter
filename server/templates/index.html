@@ -1,20 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}Wall Vibration — History{% endblock %}
-{% block heading %}Rooftop-AC noise <span class="dim">— master bedroom</span>{% endblock %}
+{% block title %}Wall Vibration History{% endblock %}
+{% block heading %}Rooftop-AC noise <span class="dim">master bedroom</span>{% endblock %}
 
 {% block head %}
   <style>
-    .lead { color: var(--muted); font-size: 14px; margin: 0 0 18px; max-width: 74ch; line-height: 1.55; }
     .explain { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 2px 0 12px; max-width: 82ch; }
     .explain b { color: var(--text); }
-    .panel h2 .num { font-family: inherit; color: var(--muted); font-weight: 800; margin-right: 4px; }
+    .panel h2 .num { color: var(--muted); font-weight: 800; margin-right: 8px; }
     details.tech { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; }
     details.tech > summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 10px 0; list-style: none; }
     details.tech > summary::-webkit-details-marker { display: none; }
     details.tech > summary::before { content: '▸  '; }
     details.tech[open] > summary::before { content: '▾  '; }
-    .verdict-line { font-size: 14px; color: var(--text); margin: 10px 0 0; }
+    .verdict-line { font-size: 14px; color: var(--text); margin: 10px 0 0; line-height: 1.5; }
     .verdict-line b { font-weight: 800; }
   </style>
 {% endblock %}
@@ -23,7 +22,7 @@
   <select id="device" title="Device"></select>
   <span id="fwBadge" class="fwbadge" title="Device firmware version"></span>
   <button id="sessionBtn" class="sesbtn" title="Pause logging while you handle/mount the device">⏸ Pause</button>
-  <span id="pausedBadge" class="paused-ind" style="display:none">● PAUSED — not logging</span>
+  <span id="pausedBadge" class="paused-ind" style="display:none">● PAUSED, not logging</span>
   <select id="range" title="Time range">
     <option value="0.016666666666666666">1 min</option>
     <option value="0.08333333333333333">5 min</option>
@@ -38,47 +37,46 @@
 {% endblock %}
 
 {% block content %}
-    <p class="lead">A plain-language look at the rooftop air-conditioning noise and vibration recorded in the master bedroom. The five cards below summarise the situation; the full technical charts are collapsed at the bottom.</p>
-
     <section class="panel">
-      <h2><span class="num">1</span>Is the noise getting better? <span class="dim">— overall loudness each night</span></h2>
-      <p class="explain">Each dot is one night's average loudness (LAeq) on a standard sound meter — lower is better. For healthy sleep the room should sit below the amber “night limit” line.</p>
+      <h2><span class="num">1</span>Is the noise getting better?</h2>
+      <p class="explain">Each dot is one night's average loudness (LAeq) on the calibrated meter. Lower is better. For healthy sleep the room should sit below the amber "night limit" line.</p>
       <canvas id="dashTrend" width="1000" height="210"></canvas>
       <p id="dashTrendText" class="verdict-line">Loading recorded nights…</p>
     </section>
 
     <section class="panel">
-      <h2><span class="num">2</span>Last night, through the night <span class="dim">— how loud the room actually was</span></h2>
-      <p class="explain">Purple is the low-frequency rumble (dBC) you feel as much as hear; the faded blue is what a normal sound meter reads (dBA). Dashed lines mark health guidelines and familiar comparisons.</p>
+      <h2><span class="num">2</span>Last night, through the night</h2>
+      <p class="explain">Purple is the low-frequency rumble (dBC) you feel as much as hear. The faded blue is the calibrated meter reading (dBA). The dashed lines are health guidelines and familiar comparisons.</p>
       <canvas id="dashLastNight" width="1000" height="250"></canvas>
       <div class="legend">
         <span><i class="sw" style="background:#a78bfa"></i> low-frequency rumble (dBC)</span>
-        <span><i class="sw" style="background:#4aa8ff;opacity:.6"></i> standard meter (dBA)</span>
+        <span><i class="sw" style="background:#4aa8ff;opacity:.6"></i> calibrated meter (dBA)</span>
       </div>
       <p id="dashLastNightText" class="verdict-line"></p>
     </section>
 
     <section class="panel">
-      <h2><span class="num">3</span>Wall vibration <span class="dim">— how hard the compressor shakes the wall, last 24 h</span></h2>
-      <p class="explain">Measured on the bedroom wall in mg (thousandths of gravity). The spikes line up with the compressor running.</p>
-      <canvas id="velChart" width="1000" height="260"></canvas>
+      <h2><span class="num">3</span>Low-frequency character</h2>
+      <p class="explain">The AC does not hum steadily, it kicks in. These bars show how far the level jumps from a quiet moment to a loud compressor onset. The low-frequency (dBC) jump is the larger one, and low rumble passes through walls most easily, so it is the hardest to sleep through.</p>
+      <canvas id="dashLowfreq" width="1000" height="160"></canvas>
+      <p id="dashLowfreqText" class="verdict-line"></p>
     </section>
 
     <section class="panel">
       <h2><span class="num">4</span>Recurring noise events during sleep hours</h2>
-      <p class="explain">Green marks every stretch the compressor was running. Frequent restarts through the night are the pattern most strongly linked to disrupted, fragmented sleep.</p>
-      <canvas id="bandChart" width="1000" height="220"></canvas>
-      <div class="legend">
-        <span><i class="sw" style="background:#35a9ff"></i> signal strength (× above quiet)</span>
-        <span><i class="sw" style="background:#21c07a"></i> compressor running</span>
-      </div>
+      <p class="explain">Each red mark is a stretch when the compressor was running last night. Frequent restarts through the night are the pattern most strongly linked to disrupted, fragmented sleep.</p>
+      <canvas id="dashEvents" width="1000" height="46"></canvas>
+      <p id="dashEventsText" class="verdict-line"></p>
     </section>
 
     <section class="panel">
-      <h2><span class="num">5</span>Low-frequency character</h2>
-      <p class="explain">Low rumble passes through walls and floors far more easily than ordinary sound, and is the hardest to block out. This shows how much extra loudness the compressor adds each time it starts — and how much more of it is low-frequency.</p>
-      <canvas id="dashLowfreq" width="1000" height="150"></canvas>
-      <p id="dashLowfreqText" class="verdict-line"></p>
+      <h2><span class="num">5</span>When the compressors are on or off <span class="dim">detected from wall vibration</span></h2>
+      <p class="explain">The wall vibration itself tells us when a compressor is running. The blue line is how strongly the wall is shaking; green marks the times a compressor was on.</p>
+      <canvas id="bandChart" width="1000" height="220"></canvas>
+      <div class="legend">
+        <span><i class="sw" style="background:#35a9ff"></i> signal strength (times above quiet)</span>
+        <span><i class="sw" style="background:#21c07a"></i> compressor running</span>
+      </div>
     </section>
 
     <details class="tech">
@@ -112,7 +110,12 @@
       </section>
 
       <section class="panel">
-        <h2>Compressor units <span class="dim">— per-unit strength (mg), so each unit is visible even when it isn't the loudest</span></h2>
+        <h2>Compressor vibration strength <span class="dim">dominant-tone amplitude (mg)</span></h2>
+        <canvas id="velChart" width="1000" height="260"></canvas>
+      </section>
+
+      <section class="panel">
+        <h2>Compressor units <span class="dim">per-unit strength (mg), so each unit is visible even when it isn't the loudest</span></h2>
         <canvas id="unitsChart" width="1000" height="240"></canvas>
         <div class="legend" id="unitsLegend">
           <span class="legtoggle" data-unit="u28"><i class="sw" style="background:#35a9ff"></i> ~28 Hz (4-pole unit)</span>
@@ -123,7 +126,7 @@
       </section>
 
       <section class="panel" id="noisePanel" style="display:none">
-        <h2>Sound level <span class="dim">— imported meter dB, in sync with the vibration; green = AC running, purple = a named event</span></h2>
+        <h2>Sound level <span class="dim">imported meter dB, in sync with the vibration; green = AC running, purple = a named event</span></h2>
         <canvas id="noiseChart" width="1000" height="220"></canvas>
         <div class="legend" id="noiseLegend"></div>
       </section>
