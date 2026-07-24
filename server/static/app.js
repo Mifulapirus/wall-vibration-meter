@@ -194,6 +194,9 @@ function fitLine(xs, ys) {
   const m = sxx ? sxy / sxx : 0; return { m, b: my - m * mx };
 }
 const fmtNight = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+// A night source is dated by its MORNING (end) date, so it was genuinely "last
+// night" only if that date is today's local date.
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 async function noiseSeries(src, from, to, limit) {
   return fetch(`/api/noise?source=${encodeURIComponent(src)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`,
     { cache: 'no-store' }).then(r => r.json());
@@ -217,7 +220,7 @@ function populateNightSelector(srcs) {
     const o = document.createElement('option');
     const iso = nDate(s.source) || new Date(s.last).toISOString().slice(0, 10);
     o.value = s.source;
-    o.textContent = fmtNight(iso) + (i === 0 ? ' (last night)' : '');
+    o.textContent = fmtNight(iso) + (iso === todayISO() ? ' · last night' : '');
     sel.appendChild(o);
   });
   if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
@@ -272,8 +275,8 @@ async function loadNightCards(srcs) {
   const sel = el('nightSel');
   const night = (sel && ns.find(s => s.source === sel.value)) || ns[0];
   const date = nDate(night.source) || new Date(night.last).toISOString().slice(0, 10);
-  const isLatest = night.source === ns[0].source;
-  if (el('nightHeading')) el('nightHeading').textContent = isLatest ? '(last night)' : `(${fmtNight(date)})`;
+  const isLastNight = date === todayISO();
+  if (el('nightHeading')) el('nightHeading').textContent = isLastNight ? `(${fmtNight(date)} · last night)` : `(${fmtNight(date)})`;
   const dslc = srcs.find(s => s.source === `DSL-C-${date}`);
   const [aRows, cRows] = await Promise.all([
     noiseSeries(night.source, night.first, night.last, 8000),
