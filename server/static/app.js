@@ -199,11 +199,29 @@ async function noiseSeries(src, from, to, limit) {
     { cache: 'no-store' }).then(r => r.json());
 }
 
+let dashSources = null;
 async function loadReadableCards() {
-  let srcs;
-  try { srcs = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json()); } catch (e) { return; }
-  loadTrendCard(srcs).catch(() => {});
-  loadNightCards(srcs).catch(() => {});
+  try { dashSources = await fetch('/api/noise/sources', { cache: 'no-store' }).then(r => r.json()); } catch (e) { return; }
+  populateNightSelector(dashSources);
+  loadTrendCard(dashSources).catch(() => {});
+  loadNightCards(dashSources).catch(() => {});
+}
+
+// Night picker for cards 2-4. Preserves the current choice across refreshes.
+function populateNightSelector(srcs) {
+  const sel = el('nightSel'); if (!sel) return;
+  const ns = srcs.filter(s => NIGHT_RE.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? 1 : -1));
+  const cur = sel.value;
+  sel.innerHTML = '';
+  ns.forEach((s, i) => {
+    const o = document.createElement('option');
+    const iso = nDate(s.source) || new Date(s.last).toISOString().slice(0, 10);
+    o.value = s.source;
+    o.textContent = fmtNight(iso) + (i === 0 ? ' (last night)' : '');
+    sel.appendChild(o);
+  });
+  if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+  else if (ns.length) sel.value = ns[0].source;
 }
 
 // Card 1 — nightly LAeq trend vs the WHO lines.
@@ -251,14 +269,18 @@ async function loadTrendCard(srcs) {
 async function loadNightCards(srcs) {
   const ns = srcs.filter(s => NIGHT_RE.test(s.source) && s.count > 100).sort((a, b) => (a.last < b.last ? 1 : -1));
   if (!ns.length) return;
-  const night = ns[0], date = nDate(night.source) || new Date(night.last).toISOString().slice(0, 10);
+  const sel = el('nightSel');
+  const night = (sel && ns.find(s => s.source === sel.value)) || ns[0];
+  const date = nDate(night.source) || new Date(night.last).toISOString().slice(0, 10);
+  const isLatest = night.source === ns[0].source;
+  if (el('nightHeading')) el('nightHeading').textContent = isLatest ? '(last night)' : `(${fmtNight(date)})`;
   const dslc = srcs.find(s => s.source === `DSL-C-${date}`);
   const [aRows, cRows] = await Promise.all([
     noiseSeries(night.source, night.first, night.last, 8000),
     dslc ? noiseSeries(dslc.source, dslc.first, dslc.last, 8000) : Promise.resolve([]),
   ]);
   drawLastNight(aRows, cRows, date);
-  drawLowfreqSwing(aRows, cRows);
+  drawLowfreqSwing(aRows, cRows, date);
 
   const csrc = dslc ? dslc.source : 'DSL-C';
   try {
@@ -320,7 +342,7 @@ function drawLastNight(aRows, cRows, date) {
 
 // Card 3 — the swing from a quiet moment to a loud onset (5th vs 95th percentile),
 // the difference that jolts you awake. The dBC (low-frequency) swing is the bigger one.
-function drawLowfreqSwing(aRows, cRows) {
+function drawLowfreqSwing(aRows, cRows, date) {
   const cv = el('dashLowfreq'); if (!cv) return;
   const aV = aRows.map(r => r.spl_db).filter(x => x != null && x <= 65);
   const cV = cRows.map(r => r.spl_db).filter(x => x != null);
@@ -347,7 +369,7 @@ function drawLowfreqSwing(aRows, cRows) {
   bar(600, cQ, cL, '#a78bfa', 'low-frequency rumble (dBC)');
   ctx.strokeStyle = '#262d38'; ctx.beginPath(); ctx.moveTo(10, baseY); ctx.lineTo(990, baseY); ctx.stroke();
   el('dashLowfreqText').innerHTML =
-    `Last night the low-frequency level jumped from about <b>${cQ.toFixed(0)} dBC</b> in quiet moments to <b>${cL.toFixed(0)} dBC</b> when the compressor kicked in, ` +
+    `On the night of <b>${fmtNight(date)}</b> the low-frequency level jumped from about <b>${cQ.toFixed(0)} dBC</b> in quiet moments to <b>${cL.toFixed(0)} dBC</b> when the compressor kicked in, ` +
     `a swing of <b>${cD.toFixed(0)} dB</b>. A sudden jump that large is what jolts you awake, and the low-frequency part carries most of it ` +
     `(the calibrated dBA swing is <b>${aD == null ? 'n/a' : '+' + aD.toFixed(0) + ' dB'}</b>).`;
 }
@@ -1000,6 +1022,7 @@ function onControlsChange() {
 el('device').addEventListener('change', () => { onControlsChange(); loadSession(); });
 el('range').addEventListener('change', onControlsChange);
 el('sessionBtn').addEventListener('click', toggleSession);
+{ const ns = el('nightSel'); if (ns) ns.addEventListener('change', () => { if (dashSources) loadNightCards(dashSources); }); }
 
 async function boot() {
   populateRanges();

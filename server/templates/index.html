@@ -19,6 +19,7 @@
 {% endblock %}
 
 {% block controls %}
+  <select id="nightSel" title="Recorded night shown in cards 2 to 4"></select>
   <select id="device" title="Device"></select>
   <span id="fwBadge" class="fwbadge" title="Device firmware version"></span>
   <button id="sessionBtn" class="sesbtn" title="Pause logging while you handle/mount the device">⏸ Pause</button>
@@ -45,7 +46,7 @@
     </section>
 
     <section class="panel">
-      <h2><span class="num">2</span>Last night, through the night</h2>
+      <h2><span class="num">2</span>Sound through the night <span class="dim" id="nightHeading"></span></h2>
       <p class="explain">Purple is the low-frequency rumble (dBC) you feel as much as hear. The faded blue is the calibrated meter reading (dBA). The dashed lines are health guidelines and familiar comparisons.</p>
       <canvas id="dashLastNight" width="1000" height="250"></canvas>
       <div class="legend">
@@ -64,7 +65,7 @@
 
     <section class="panel">
       <h2><span class="num">4</span>Recurring noise events during sleep hours</h2>
-      <p class="explain">Each red mark is a stretch when the compressor was running last night. Frequent restarts through the night are the pattern most strongly linked to disrupted, fragmented sleep.</p>
+      <p class="explain">Each red mark is a stretch when the compressor was running that night. Frequent restarts through the night are the pattern most strongly linked to disrupted, fragmented sleep.</p>
       <canvas id="dashEvents" width="1000" height="46"></canvas>
       <p id="dashEventsText" class="verdict-line"></p>
     </section>
